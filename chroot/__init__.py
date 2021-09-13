@@ -6,10 +6,10 @@
 # License, or (at your option) any later version.
 
 import os
-from os.path import abspath, join
+from os.path import abspath, join, realpath
 import shlex
 import subprocess
-from contextlib impoort contextmanager
+from contextlib import contextmanager
 
 from typing import Dict, Optional
 
@@ -26,9 +26,15 @@ def is_mounted(path: os.PathLike) -> bool:
     '''
     raw_path: Union[str, bytes] = os.fspath(path)
     mode = 'rb' if isinstance(raw_path, bytes) else 'r'
+    sep = b' ' if isinstance(raw_path, bytes) else ' '
     with open('/proc/mounts', mode) as fob:
-        return fob.read().find(path) != -1
+        for line in fob:
+            host, guest, *others = line.split(sep)
+            if guest == path:
+                return True
+    return False
 
+@contextmanager
 def mount(target: os.PathLike, environ: Optional[Dict[str, str]] = None):
     '''magic mount context manager
 
@@ -46,8 +52,7 @@ def mount(target: os.PathLike, environ: Optional[Dict[str, str]] = None):
         a `Chroot` object representing a mounted chroot at the given location
         
     '''
-    target = MagicMounts(target)
-    yield Chroot(target)
+    yield Chroot(target, environ)
 
 class MagicMounts:
     '''MagicMounts: An object which manages mounting/unmounting a chroot.
@@ -76,7 +81,7 @@ class MagicMounts:
         if not is_mounted(self.path_proc):
             try:
                 subprocess.run(['mount', '-t', 'proc', 'proc-chroot',
-                    self.paths.proc], check=True)
+                    self.path_proc], check=True)
             except subprocess.CalledProcessError as e:
                 raise MountError(*e.args) from e
             self.mounted_proc_myself = True
@@ -84,7 +89,7 @@ class MagicMounts:
         if not is_mounted(self.path_dev_pts):
             try:
                 subprocess.run(['mount', '-t', 'devpts', 'devpts-chroot',
-                    self.paths.dev.pts], check=True)
+                    self.path_dev_pts], check=True)
             except subprocess.CalledProcessError as e:
                 raise MountError(*e.args) from e
             self.mounted_devpts_myself = True
@@ -97,14 +102,14 @@ class MagicMounts:
         '''
         if self.mounted_devpts_myself:
             try:
-                subprocess.run(['umount', self.paths.dev.pts], check=True)
+                subprocess.run(['umount', self.path_dev_pts], check=True)
             except subprocess.CalledProcessError as e:
                 raise MountError(*e.args) from e
             self.mounted_devpts_myself = False
 
         if self.mounted_proc_myself:
             try:
-                subprocess.run(['umount', self.paths.proc], check=True)
+                subprocess.run(['umount', self.path_proc], check=True)
             except subprocess.CalledProcessError as e:
                 raise MountError(*e.args) from e
             self.mounted_proc_myself = False
@@ -141,12 +146,12 @@ class Chroot:
     def _prepare_command(self, *command):
         env = ['env', '-i', *(
             shlex.quote(name + "=" + val)
-                for name, val in list(self.environ.items()))]
+                for name, val in self.environ.items())]
         command = [shlex.quote(part) for part in command]
         return [
             'chroot', self.path,
             'sh', '-c',
-            shlex.quote(' '.join(env) + ' ' + command)
+            ' '.join(env) + ' ' + ' '.join(command)
         ]
     
     def system(self, *command) -> int:
