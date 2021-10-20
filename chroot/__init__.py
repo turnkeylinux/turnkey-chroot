@@ -11,13 +11,17 @@ import shlex
 import subprocess
 from contextlib import contextmanager
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Union, TypeVar, Generator, List, Any
 
+AnyPath = TypeVar('AnyPath', str, os.PathLike)
 
-class MountError(Exception):
+class ChrootError(Exception):
     pass
 
-def is_mounted(path: os.PathLike) -> bool:
+class MountError(ChrootError):
+    pass
+
+def is_mounted(path: AnyPath) -> bool:
     ''' determines if a given path is currently mounted.
 
     This method supports any path-like object (any object which implements the
@@ -35,7 +39,10 @@ def is_mounted(path: os.PathLike) -> bool:
     return False
 
 @contextmanager
-def mount(target: os.PathLike, environ: Optional[Dict[str, str]] = None):
+def mount(
+        target: os.PathLike,
+        environ: Optional[Dict[str, str]] = None
+) -> Generator['Chroot', None, None]:
     '''magic mount context manager
 
     Usage:
@@ -60,7 +67,7 @@ class MagicMounts:
     You *probably* don't want to use this object directly but rather the `mount`
     context manager, or the `Chroot` object.
     '''
-    def __init__(self, root: os.PathLike = "/"):
+    def __init__(self, root: str = "/"):
         root = os.fspath(abspath(root))
 
         self.path_proc = join(root, "proc")
@@ -71,7 +78,7 @@ class MagicMounts:
 
         self.mount()
 
-    def mount(self):
+    def mount(self) -> None:
         ''' mount this chroot
 
         Raises:
@@ -94,7 +101,7 @@ class MagicMounts:
                 raise MountError(*e.args) from e
             self.mounted_devpts_myself = True
 
-    def umount(self):
+    def umount(self) -> None:
         ''' un-mount this chroot
 
         Raises:
@@ -114,7 +121,7 @@ class MagicMounts:
                 raise MountError(*e.args) from e
             self.mounted_proc_myself = False
 
-    def __del__(self):
+    def __del__(self) -> None:
         self.umount()
 
 class Chroot:
@@ -127,7 +134,7 @@ class Chroot:
         >>> assert 'ENVVAR=bar' in foo.run(['env'], text=True).stdout
     '''
     def __init__(
-            self, newroot: os.PathLike,
+            self, newroot: AnyPath,
             environ: Optional[Dict[str, str]] = None):
 
         if environ is None:
@@ -140,21 +147,29 @@ class Chroot:
         }
         self.environ.update(environ)
 
-        self.path = realpath(newroot)
+        self.path: str = realpath(os.fspath(newroot))
         self.magicmounts = MagicMounts(self.path)
 
-    def _prepare_command(self, *command):
-        env = ['env', '-i', *(
-            shlex.quote(name + "=" + val)
-                for name, val in self.environ.items())]
-        command = [shlex.quote(part) for part in command]
+    def _prepare_command(self, *commands: str) -> List[str]:
+        try:
+            env = ['env', '-i', *(
+                shlex.quote(name + "=" + val)
+                    for name, val in self.environ.items())]
+        except TypeError as e:
+            raise ChrootError(f'failed to prepare environment {self.environ!r} for chroot') from e 
+        quoted_commands = []
+        for command in commands:
+            try:
+                quoted_commands.append(shlex.quote(command))
+            except TypeError as e:
+                raise ChrootError(f'failed to prepare command {command!r} for chroot') from e 
         return [
             'chroot', self.path,
             'sh', '-c',
-            ' '.join(env) + ' ' + ' '.join(command)
+            ' '.join(env) + ' ' + ' '.join(quoted_commands)
         ]
     
-    def system(self, *command) -> int:
+    def system(self, *command: str) -> int:
         """execute system command in chroot
 
         roughly analagous to `os.system` except within the context of a chroot
@@ -172,7 +187,7 @@ class Chroot:
 
         return subprocess.run(self._prepare_command(*command)).returncode
 
-    def run(self, command, *args, **kwargs) -> subprocess.CompletedProcess:
+    def run(self, command: str, *args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
         """execute system command in chroot
 
         roughly analagous to `subprocess.run` except within the context of a
