@@ -15,11 +15,14 @@ from typing import Dict, Optional, Union, TypeVar, Generator, List, Any
 
 AnyPath = TypeVar('AnyPath', str, os.PathLike)
 
+
 class ChrootError(Exception):
     pass
 
+
 class MountError(ChrootError):
     pass
+
 
 def is_mounted(path: AnyPath) -> bool:
     ''' determines if a given path is currently mounted.
@@ -37,6 +40,7 @@ def is_mounted(path: AnyPath) -> bool:
             if guest == path:
                 return True
     return False
+
 
 @contextmanager
 def mount(
@@ -61,22 +65,41 @@ def mount(
     '''
     yield Chroot(target, environ)
 
+
 class MagicMounts:
     '''MagicMounts: An object which manages mounting/unmounting a chroot.
 
     You *probably* don't want to use this object directly but rather the `mount`
     context manager, or the `Chroot` object.
     '''
-    def __init__(self, root: str = "/"):
+    def __init__(self, root: str = "/", profile: Optional[str] = None):
         root = os.fspath(abspath(root))
 
-        self.path_proc = join(root, "proc")
-        self.path_dev_pts = join(root, "dev/pts")
+        self.profile = 'default' if not profile else profile
 
-        self.mounted_proc_myself = False
-        self.mounted_devpts_myself = False
+        self.path['proc'] = join(root, "proc")
+        self.path['dev'] = join(root, "dev")
+        self.path['devpts'] = join(root, "dev/pts")
+        self.path['sys'] = join(root, "sys")
+        self.path['run'] = join(root, "run")
+
+        self.mounted['proc'] = False
+        self.mounted['dev'] = False
+        self.mounted['devpts'] = False
+        self.mounted['sys'] = False
+        self.mounted['run'] = False
+
+        if self.profile not in ['default', 'full']:
+            raise MountError(f"Profile unknown: {profile}")
 
         self.mount()
+
+    @staticmethod
+    def _run(command):
+        try:
+            subprocess.run(command, check=True)
+        except subprocess.CalledProcessError as e:
+            raise MountError(*e.args) from e
 
     def mount(self) -> None:
         ''' mount this chroot
@@ -84,22 +107,31 @@ class MagicMounts:
         Raises:
             MountError: An error occured while trying to mount chroot
         '''
-            
-        if not is_mounted(self.path_proc):
-            try:
-                subprocess.run(['mount', '-t', 'proc', 'proc-chroot',
-                    self.path_proc], check=True)
-            except subprocess.CalledProcessError as e:
-                raise MountError(*e.args) from e
-            self.mounted_proc_myself = True
 
-        if not is_mounted(self.path_dev_pts):
-            try:
-                subprocess.run(['mount', '-t', 'devpts', 'devpts-chroot',
-                    self.path_dev_pts], check=True)
-            except subprocess.CalledProcessError as e:
-                raise MountError(*e.args) from e
-            self.mounted_devpts_myself = True
+        def default_mount(self, mtype: str, guest_mnt: str) -> None:
+            if is_mounted(guest_mnt):
+                return
+            command = ['mount', '-t']
+            self._run([*command, mtype, f'{mtype}-chroot', guest_mnt])
+            self.mounted[mtype] = True
+
+        def full_mount(self, host_mnt: str, guest_mnt: str) -> None:
+            if is_mounted(guest_mnt):
+                return
+            command = ['mount', '-o', 'bind']
+            self._run([*command, host_mnt, guest_mnt])
+            self.mounted[host_mnt] = True
+
+        if self.profile is 'default':
+            for mtype, path in (('proc', self.path_proc),
+                                ('devpts', self.path_dev_pts)):
+                default_mount(mtype, path)
+        elif self.profile is 'full':
+            for host_mnt, guest_mnt in (('proc', self.path_proc),
+                                        ('dev', self.path_dev),
+                                        ('sys', self.path_sys),
+                                        ('run', self.path_run))
+                full_mount(host_mnt, guest_mnt)
 
     def umount(self) -> None:
         ''' un-mount this chroot
@@ -107,22 +139,15 @@ class MagicMounts:
         Raises:
             MountError: An error occured while trying to un-mount chroot
         '''
-        if self.mounted_devpts_myself:
-            try:
-                subprocess.run(['umount', self.path_dev_pts], check=True)
-            except subprocess.CalledProcessError as e:
-                raise MountError(*e.args) from e
-            self.mounted_devpts_myself = False
-
-        if self.mounted_proc_myself:
-            try:
-                subprocess.run(['umount', self.path_proc], check=True)
-            except subprocess.CalledProcessError as e:
-                raise MountError(*e.args) from e
-            self.mounted_proc_myself = False
+        command = ['umount', '-f']
+        for mount in self.mounted.keys():
+            if self.mounted[mount]:
+                self._run([*command, self.path[mount]]
+                self.mounted[mount] = False
 
     def __del__(self) -> None:
         self.umount()
+
 
 class Chroot:
     '''represents a chroot on your system that you can run commands inside.
@@ -213,4 +238,3 @@ class Chroot:
                 exitcode != 0
         """
         return subprocess.run(self._prepare_command(*command), *args, **kwargs)
-
