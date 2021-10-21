@@ -126,15 +126,15 @@ class MagicMounts:
             self._run([*command, host_mnt, guest_mnt])
             self.mounted[host_mnt] = True
 
-        if self.profile is 'default':
+        if self.profile == 'default':
             for mtype, path in (('proc', self.path_proc),
                                 ('devpts', self.path_dev_pts)):
                 default_mount(mtype, path)
-        elif self.profile is 'full':
+        elif self.profile == 'full':
             for host_mnt, guest_mnt in (('proc', self.path_proc),
                                         ('dev', self.path_dev),
                                         ('sys', self.path_sys),
-                                        ('run', self.path_run))
+                                        ('run', self.path_run)):
                 full_mount(host_mnt, guest_mnt)
 
     def umount(self) -> None:
@@ -146,7 +146,7 @@ class MagicMounts:
         command = ['umount', '-f']
         for mount in self.mounted.keys():
             if self.mounted[mount]:
-                self._run([*command, self.path[mount]]
+                self._run([*command, self.path[mount]])
                 self.mounted[mount] = False
 
     def __del__(self) -> None:
