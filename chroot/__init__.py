@@ -16,14 +16,16 @@ from typing import Dict, Optional, Union, TypeVar, Generator, List, Any
 AnyPath = TypeVar('AnyPath', str, os.PathLike)
 
 MNT_DEFAULT = {
-        'switch': '-t',  # mount switch to use
+        # Mounts 'devpts' and 'proc' type mounts into the chroot
+        'switch': '-t',  # use '-t' (type) switch with mount
         'proc' : 'proc',  # label/mount_type: mount_point
         'devpts': 'dev/pts'}
 
 
 MNT_FULL = {
-        'switch': '-o',
-        'proc': 'proc',  # label: mount_point
+        # Bind mounts /dev, /sys, /proc & /run into the chroot
+        'switch': '-o',  # use '-o (bind)' (option) switch with mount
+        'proc': 'proc',  # label/host_mount: mount_point
         'dev': 'dev',
         'sys': 'sys',
         'run': 'run'}
@@ -91,7 +93,6 @@ class MagicMounts:
 
         self.path: Dict[str, str] = {}
         self.mounted: Dict[str, str] = {}
-        self.command = ['mount', self.profile[switch]]
         for k, v in self.profile:
             if k != 'switch':
                 self.path[k] = join(root, v)
