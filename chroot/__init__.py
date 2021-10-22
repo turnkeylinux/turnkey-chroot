@@ -15,6 +15,19 @@ from typing import Dict, Optional, Union, TypeVar, Generator, List, Any
 
 AnyPath = TypeVar('AnyPath', str, os.PathLike)
 
+MNT_DEFAULT = {
+        'switch': '-t',  # mount switch to use
+        'proc' : 'proc',  # label/mount_type: mount_point
+        'devpts': 'dev/pts'}
+
+MNT_FULL = {
+        'switch': '-o',
+        'proc': 'proc',  # label: mount_point
+        'dev': 'dev',
+        'sys': 'sys',
+        'run': 'run'}
+
+
 def debug(*s: Any) -> None:
     if os.getenv('TKL_CHROOT_DEBUG', ''):
         print(*s)
@@ -76,34 +89,20 @@ class MagicMounts:
     You *probably* don't want to use this object directly but rather the `mount`
     context manager, or the `Chroot` object.
     '''
-    def __init__(self, root: str = "/", profile: Optional[str] = None):
+    def __init__(self, root: str = "/", profile: Optional[Dict] = None):
         root = os.fspath(abspath(root))
 
-        self.profile = 'default' if not profile else profile
+        self.profile = MNT_DEFAULT if not profile else profile
 
-        self.path['proc'] = join(root, "proc")
-        self.path['dev'] = join(root, "dev")
-        self.path['devpts'] = join(root, "dev/pts")
-        self.path['sys'] = join(root, "sys")
-        self.path['run'] = join(root, "run")
-
-        self.mounted['proc'] = False
-        self.mounted['dev'] = False
-        self.mounted['devpts'] = False
-        self.mounted['sys'] = False
-        self.mounted['run'] = False
-
-        if self.profile not in ['default', 'full']:
-            raise MountError(f"Profile unknown: {profile}")
+        self.path: Dict[str, str] = {}
+        self.mounted: Dict[str, str] = {}
+        self.command = ['mount', self.profile[switch]]
+        for k, v in self.profile:
+            if k != 'switch':
+                self.path[k] = join(root, v)
+                self.mounted[k] = False
 
         self.mount()
-
-    @staticmethod
-    def _run(command):
-        try:
-            subprocess.run(command, check=True)
-        except subprocess.CalledProcessError as e:
-            raise MountError(*e.args) from e
 
     def mount(self) -> None:
         ''' mount this chroot
@@ -111,31 +110,20 @@ class MagicMounts:
         Raises:
             MountError: An error occured while trying to mount chroot
         '''
-
-        def default_mount(self, mtype: str, guest_mnt: str) -> None:
-            if is_mounted(guest_mnt):
-                return
-            command = ['mount', '-t']
-            self._run([*command, mtype, f'{mtype}-chroot', guest_mnt])
-            self.mounted[mtype] = True
-
-        def full_mount(self, host_mnt: str, guest_mnt: str) -> None:
-            if is_mounted(guest_mnt):
-                return
-            command = ['mount', '-o', 'bind']
-            self._run([*command, host_mnt, guest_mnt])
-            self.mounted[host_mnt] = True
-
-        if self.profile == 'default':
-            for mtype, path in (('proc', self.path_proc),
-                                ('devpts', self.path_dev_pts)):
-                default_mount(mtype, path)
-        elif self.profile == 'full':
-            for host_mnt, guest_mnt in (('proc', self.path_proc),
-                                        ('dev', self.path_dev),
-                                        ('sys', self.path_sys),
-                                        ('run', self.path_run)):
-                full_mount(host_mnt, guest_mnt)
+        for host_mnt, chr_path in self.path:
+            if is_mounted(chr_path):
+                continue
+            switch = self.profile[switch]
+            command = ['mount', switch]
+            if switch == '-o':
+                command.extend(['bind', host_mnt, chr_path])
+            elif switch == '-t':
+                command.extend([host_mnt, f'{host_mnt}-chroot', chr_path])
+            try:
+                subprocess.run(command, check=True)
+                self.mounted[host_mnt] = True
+            except subprocess.CalledProcessError as e:
+                raise MountError(*e.args) from e
 
     def umount(self) -> None:
         ''' un-mount this chroot
