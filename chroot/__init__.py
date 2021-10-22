@@ -83,7 +83,7 @@ def mount(
         a `Chroot` object representing a mounted chroot at the given location
         
     '''
-    yield Chroot(target, environ, mnt_profile=mnt_profile)
+    yield Chroot(target, environ, mnt_profile)
 
 
 class MagicMounts:
