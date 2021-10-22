@@ -59,7 +59,8 @@ def is_mounted(path: AnyPath) -> bool:
 @contextmanager
 def mount(
         target: os.PathLike,
-        environ: Optional[Dict[str, str]] = None
+        environ: Optional[Dict[str, str]] = None,
+        mnt_profile: Optional[Dict[str, str]] = None
 ) -> Generator['Chroot', None, None]:
     '''magic mount context manager
 
@@ -77,7 +78,7 @@ def mount(
         a `Chroot` object representing a mounted chroot at the given location
         
     '''
-    yield Chroot(target, environ)
+    yield Chroot(target, environ, mnt_profile=mnt_profile)
 
 
 class MagicMounts:
@@ -86,10 +87,10 @@ class MagicMounts:
     You *probably* don't want to use this object directly but rather the `mount`
     context manager, or the `Chroot` object.
     '''
-    def __init__(self, root: str = "/", profile: Optional[Dict] = None):
+    def __init__(self, mnt_profile: Dict[str, str], root: str = "/"):
         root = os.fspath(abspath(root))
 
-        self.profile = MNT_DEFAULT if not profile else profile
+        self.profile = mnt_profile
 
         self.path: Dict[str, str] = {}
         self.mounted: Dict[str, str] = {}
@@ -148,7 +149,8 @@ class Chroot:
     '''
     def __init__(
             self, newroot: AnyPath,
-            environ: Optional[Dict[str, str]] = None):
+            environ: Optional[Dict[str, str]] = None,
+            mnt_profile: Optional[Dict[str, str]] = None):
 
         if environ is None:
             environ = {}
@@ -159,9 +161,10 @@ class Chroot:
             'PATH': "/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/bin:/usr/sbin"
         }
         self.environ.update(environ)
+        self.profile = MNT_DEFAULT if not mnt_profile else mnt_profile
 
         self.path: str = realpath(os.fspath(newroot))
-        self.magicmounts = MagicMounts(self.path)
+        self.magicmounts = MagicMounts(self.profile, self.path)
 
     def _prepare_command(self, *commands: str) -> List[str]:
         try:
