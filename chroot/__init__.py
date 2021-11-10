@@ -15,6 +15,10 @@ from typing import Dict, Optional, Union, TypeVar, Generator, List, Any
 
 AnyPath = TypeVar('AnyPath', str, os.PathLike)
 
+def debug(*s: Any) -> None:
+    if os.getenv('TKL_CHROOT_DEBUG', ''):
+        print(*s)
+
 class ChrootError(Exception):
     pass
 
@@ -151,12 +155,6 @@ class Chroot:
         self.magicmounts = MagicMounts(self.path)
 
     def _prepare_command(self, *commands: str) -> List[str]:
-        try:
-            env = ['env', '-i', *(
-                shlex.quote(name + "=" + val)
-                    for name, val in self.environ.items())]
-        except TypeError as e:
-            raise ChrootError(f'failed to prepare environment {self.environ!r} for chroot') from e 
         quoted_commands = []
         for command in commands:
             try:
@@ -166,7 +164,7 @@ class Chroot:
         return [
             'chroot', self.path,
             'sh', '-c',
-            ' '.join(env) + ' ' + ' '.join(quoted_commands)
+            ' '.join(quoted_commands)
         ]
     
     def system(self, *command: str) -> int:
@@ -185,7 +183,10 @@ class Chroot:
             FileNotFoundError: chroot program doesn't exist
         """
 
-        return subprocess.run(self._prepare_command(*command)).returncode
+        debug('chroot.system (args) => \x1b[34m', repr(command), '\x1b[0m')
+        cmd = self._prepare_command(*command)
+        debug('chroot.system (prepared cmd) => \x1b[33m', repr(cmd), '\x1b[0m')
+        return subprocess.run(cmd, env=self.environ).returncode
 
     def run(self, command: str, *args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
         """execute system command in chroot
@@ -212,5 +213,8 @@ class Chroot:
             CalledProcessError: check=True was passed in kwargs and
                 exitcode != 0
         """
-        return subprocess.run(self._prepare_command(*command), *args, **kwargs)
+        debug('chroot.run (args) => \x1b[34m', repr(command), '\x1b[0m')
+        cmd = self._prepare_command(*command)
+        debug('chroot.run (prepared cmd) => \x1b[33m', repr(cmd), '\x1b[0m')
+        return subprocess.run(cmd, env=self.environ, *args, **kwargs)
 
