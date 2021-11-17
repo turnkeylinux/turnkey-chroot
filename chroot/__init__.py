@@ -134,7 +134,7 @@ class MagicMounts:
         command = ['umount', '-f']
         for mount in self.mounted.keys():
             if self.mounted[mount]:
-                self._run([*command, self.path[mount]])
+                subprocess.run([*command, self.path[mount]])
                 self.mounted[mount] = False
 
     def __del__(self) -> None:
@@ -175,7 +175,11 @@ class Chroot:
                 shlex.quote(name + "=" + val)
                     for name, val in self.environ.items())]
         except TypeError as e:
-            raise ChrootError(f'failed to prepare environment {self.environ!r} for chroot') from e 
+            raise ChrootError(f'failed to prepare environment {self.environ!r}'
+                              'for chroot') from e
+        if '>' in commands or '<' in commands or '|' in commands:
+            raise ChrootError("Output redirects and pipes not supported in"
+                              f"fab-chroot (command: `{commands}')")
         quoted_commands = []
         for command in commands:
             try:
