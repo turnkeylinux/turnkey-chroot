@@ -116,6 +116,9 @@ class MagicMounts:
                 command.extend(['bind', host_mnt, chr_path])
             elif switch == '-t':
                 command.extend([host_mnt, f'{host_mnt}-chroot', chr_path])
+            else:
+                raise MountError(
+                        f"Unknown switch passed to mount() method: '{switch}'.")
             try:
                 subprocess.run(command, check=True)
                 self.mounted[host_mnt] = True
