@@ -115,7 +115,7 @@ class MagicMounts:
         for host_mnt, chr_path in self.path.items():
             if is_mounted(chr_path):
                 continue
-            switch = self.profile[switch]
+            switch = self.profile['switch']
             command = ['mount', switch]
             if switch == '-o':
                 command.extend(['bind', host_mnt, chr_path])
