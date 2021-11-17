@@ -107,7 +107,7 @@ class MagicMounts:
         Raises:
             MountError: An error occured while trying to mount chroot
         '''
-        for host_mnt, chr_path in self.path:
+        for host_mnt, chr_path in self.path.items():
             if is_mounted(chr_path):
                 continue
             switch = self.profile[switch]
