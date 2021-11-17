@@ -99,7 +99,7 @@ class MagicMounts:
 
         self.path: Dict[str, str] = {}
         self.mounted: Dict[str, str] = {}
-        for k, v in self.profile:
+        for k, v in self.profile.items():
             if k != 'switch':
                 self.path[k] = join(root, v)
                 self.mounted[k] = False
