@@ -175,13 +175,6 @@ class Chroot:
         self.magicmounts = MagicMounts(self.profile, self.path)
 
     def _prepare_command(self, *commands: str) -> List[str]:
-        try:
-            env = ['env', '-i', *(
-                shlex.quote(name + "=" + val)
-                    for name, val in self.environ.items())]
-        except TypeError as e:
-            raise ChrootError(f'failed to prepare environment {self.environ!r}'
-                              'for chroot') from e
         if '>' in commands or '<' in commands or '|' in commands:
             raise ChrootError("Output redirects and pipes not supported in"
                               f"fab-chroot (command: `{commands}')")
@@ -197,14 +190,16 @@ class Chroot:
             ' '.join(quoted_commands)
         ]
 
-    def system(self, *command: str) -> int:
+    def system(self, command: str) -> int:
         """execute system command in chroot
 
         roughly analagous to `os.system` except within the context of a chroot
         (uses subprocess internally)
 
         Args:
-            *command: command to run inside a chroot followed by args
+            command: command (with args) to run inside a chroot
+                     - if no command is passed, then will open an interactive
+                       (bash) shell within the chroot
 
         Returns:
             returncode of process as an int
@@ -214,9 +209,10 @@ class Chroot:
         """
 
         debug('chroot.system (args) => \x1b[34m', repr(command), '\x1b[0m')
-        cmd = self._prepare_command(*command)
-        debug('chroot.system (prepared cmd) => \x1b[33m', repr(cmd), '\x1b[0m')
-        return subprocess.run(cmd, env=self.environ).returncode
+        command_chroot = ['chroot', self.path, '/bin/bash']
+        if command:
+            command_chroot.extend(['-c', command])
+        return subprocess.run(command_chroot, env=self.environ).returncode
 
     def run(self, command: str, *args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
         """execute system command in chroot
