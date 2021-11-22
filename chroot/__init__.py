@@ -190,7 +190,7 @@ class Chroot:
             ' '.join(quoted_commands)
         ]
 
-    def system(self, command: str) -> int:
+    def system(self, command: Optional[str] = None) -> int:
         """execute system command in chroot
 
         roughly analagous to `os.system` except within the context of a chroot
