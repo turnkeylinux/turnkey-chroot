@@ -21,7 +21,6 @@ MNT_DEFAULT = {
         'proc' : 'proc',  # label/mount_type: mount_point
         'devpts': 'dev/pts'}
 
-
 MNT_FULL = {
         # Bind mounts /dev, /sys, /proc & /run into the chroot
         'switch': '-o',  # use '-o (bind)' (option) switch with mount
@@ -29,6 +28,12 @@ MNT_FULL = {
         'dev': 'dev',
         'sys': 'sys',
         'run': 'run'}
+
+
+def debug(*s: Any) -> None:
+    if os.getenv('TKL_CHROOT_DEBUG', ''):
+        print(*s)
+
 
 class ChrootError(Exception):
     pass
@@ -76,7 +81,7 @@ def mount(
 
     Yields:
         a `Chroot` object representing a mounted chroot at the given location
-        
+
     '''
     yield Chroot(target, environ, mnt_profile)
 
@@ -94,7 +99,7 @@ class MagicMounts:
 
         self.path: Dict[str, str] = {}
         self.mounted: Dict[str, str] = {}
-        for k, v in self.profile:
+        for k, v in self.profile.items():
             if k != 'switch':
                 self.path[k] = join(root, v)
                 self.mounted[k] = False
@@ -107,15 +112,18 @@ class MagicMounts:
         Raises:
             MountError: An error occured while trying to mount chroot
         '''
-        for host_mnt, chr_path in self.path:
+        for host_mnt, chr_path in self.path.items():
             if is_mounted(chr_path):
                 continue
-            switch = self.profile[switch]
+            switch = self.profile['switch']
             command = ['mount', switch]
             if switch == '-o':
                 command.extend(['bind', host_mnt, chr_path])
             elif switch == '-t':
                 command.extend([host_mnt, f'{host_mnt}-chroot', chr_path])
+            else:
+                raise MountError(
+                        f"Unknown switch passed to mount() method: '{switch}'.")
             try:
                 subprocess.run(command, check=True)
                 self.mounted[host_mnt] = True
@@ -131,7 +139,7 @@ class MagicMounts:
         command = ['umount', '-f']
         for mount in self.mounted.keys():
             if self.mounted[mount]:
-                self._run([*command, self.path[mount]])
+                subprocess.run([*command, self.path[mount]])
                 self.mounted[mount] = False
 
     def __del__(self) -> None:
@@ -167,41 +175,44 @@ class Chroot:
         self.magicmounts = MagicMounts(self.profile, self.path)
 
     def _prepare_command(self, *commands: str) -> List[str]:
-        try:
-            env = ['env', '-i', *(
-                shlex.quote(name + "=" + val)
-                    for name, val in self.environ.items())]
-        except TypeError as e:
-            raise ChrootError(f'failed to prepare environment {self.environ!r} for chroot') from e 
+        if '>' in commands or '<' in commands or '|' in commands:
+            raise ChrootError("Output redirects and pipes not supported in"
+                              f"fab-chroot (command: `{commands}')")
         quoted_commands = []
         for command in commands:
             try:
                 quoted_commands.append(shlex.quote(command))
             except TypeError as e:
-                raise ChrootError(f'failed to prepare command {command!r} for chroot') from e 
+                raise ChrootError(f'failed to prepare command {command!r} for chroot') from e
         return [
             'chroot', self.path,
             'sh', '-c',
-            ' '.join(env) + ' ' + ' '.join(quoted_commands)
+            ' '.join(quoted_commands)
         ]
-    
-    def system(self, *command: str) -> int:
+
+    def system(self, command: Optional[str] = None) -> int:
         """execute system command in chroot
 
         roughly analagous to `os.system` except within the context of a chroot
         (uses subprocess internally)
 
         Args:
-            *command: command to run inside a chroot followed by args
+            command: command (with args) to run inside a chroot
+                     - if no command is passed, then will open an interactive
+                       (bash) shell within the chroot
 
         Returns:
-            returncode of process as an int 
+            returncode of process as an int
 
         Raises:
             FileNotFoundError: chroot program doesn't exist
         """
 
-        return subprocess.run(self._prepare_command(*command)).returncode
+        debug('chroot.system (args) => \x1b[34m', repr(command), '\x1b[0m')
+        command_chroot = ['chroot', self.path, '/bin/bash']
+        if command:
+            command_chroot.extend(['-c', command])
+        return subprocess.run(command_chroot, env=self.environ).returncode
 
     def run(self, command: str, *args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
         """execute system command in chroot
@@ -228,4 +239,7 @@ class Chroot:
             CalledProcessError: check=True was passed in kwargs and
                 exitcode != 0
         """
-        return subprocess.run(self._prepare_command(*command), *args, **kwargs)
+        debug('chroot.run (args) => \x1b[34m', repr(command), '\x1b[0m')
+        cmd = self._prepare_command(*command)
+        debug('chroot.run (prepared cmd) => \x1b[33m', repr(cmd), '\x1b[0m')
+        return subprocess.run(cmd, env=self.environ, *args, **kwargs)
