@@ -97,6 +97,9 @@ class MagicMounts:
 
         self.profile = mnt_profile
 
+        if "ARM_ON_AMD" in os.environ:
+            self.profile['/usr/bin/qemu-arm-static'] = "usr/bin"
+
         self.path: Dict[str, str] = {}
         self.mounted: Dict[str, str] = {}
         for k, v in self.profile.items():
@@ -116,6 +119,8 @@ class MagicMounts:
             if is_mounted(chr_path):
                 continue
             switch = self.profile['switch']
+            if host_mnt.endswith("qemu-arm-static"):
+                switch = "-o"
             command = ['mount', switch]
             if switch == '-o':
                 command.extend(['bind', host_mnt, chr_path])
