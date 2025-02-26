@@ -12,7 +12,7 @@ import subprocess
 import shutil
 from contextlib import contextmanager
 
-from typing import Dict, Optional, Union, TypeVar, Generator, List, Any
+from typing import TypeVar, Generator, Any
 
 AnyPath = TypeVar('AnyPath', str, os.PathLike)
 
@@ -56,7 +56,7 @@ def is_mounted(path: AnyPath) -> bool:
     os.PathLike interface, this includes `str`, `bytes` and path objects
     provided by `pathlib` in the standard library.
     '''
-    raw_path: Union[str, bytes] = os.fspath(path)
+    raw_path: str | bytes = os.fspath(path)
     mode = 'rb' if isinstance(raw_path, bytes) else 'r'
     sep = b' ' if isinstance(raw_path, bytes) else ' '
     with open('/proc/mounts', mode) as fob:
@@ -70,8 +70,8 @@ def is_mounted(path: AnyPath) -> bool:
 @contextmanager
 def mount(
         target: os.PathLike,
-        environ: Optional[Dict[str, str]] = None,
-        mnt_profile: Optional[list[tuple[str, str, str]]] = None
+        environ: dict[str, str] | None = None,
+        mnt_profile: list[tuple[str, str, str]] | None = None
 ) -> Generator['Chroot', None, None]:
     '''magic mount context manager
 
@@ -168,8 +168,8 @@ class Chroot:
     '''
     def __init__(
             self, newroot: AnyPath,
-            environ: Optional[Dict[str, str]] = None,
-            mnt_profile: Optional[list[tuple[str, str, str]]] = None
+            environ: dict[str, str] | None = None,
+            mnt_profile: list[tuple[str, str, str]] | None = None
             ):
         if environ is None:
             environ = {}
@@ -195,7 +195,7 @@ class Chroot:
         self.magicmounts = MagicMounts(self.profile, self.chr_path,
                                        self.qemu_arch_static)
 
-    def _prepare_command(self, *commands: str) -> List[str]:
+    def _prepare_command(self, *commands: str) -> list[str]:
         if '>' in commands or '<' in commands or '|' in commands:
             raise ChrootError("Output redirects and pipes not supported in"
                               f"fab-chroot (command: `{commands}')")
@@ -213,7 +213,7 @@ class Chroot:
             ' '.join(quoted_commands)
         ]
 
-    def system(self, command: Optional[str] = None) -> int:
+    def system(self, command: str | None = None) -> int:
         """execute system command in chroot
 
         roughly analagous to `os.system` except within the context of a chroot
