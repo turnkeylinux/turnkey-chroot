@@ -61,7 +61,7 @@ def is_mounted(path: AnyPath) -> bool:
     sep = b' ' if isinstance(raw_path, bytes) else ' '
     with open('/proc/mounts', mode) as fob:
         for line in fob:
-            host, guest, *others = line.split(sep)
+            _, guest, *_ = line.split(sep)
             if guest == path:
                 return True
     return False
@@ -109,11 +109,15 @@ class MagicMounts:
             self.qemu_arch_static = (f"/{qemu_arch_bin}",
                                      join(root, qemu_arch_bin))
         self.paths = tuple()
-        self.mounted: dict[str, str] = {}
+        self.mounted: dict[str, bool] = {}
 
         for mount_item in sorted(self.profile):
             for switch, host_mnt, chr_mnt in mount_item:
-                self.paths = tuple(*self.paths, (swtch, host_mnt, join(root, chr_mnt))
+                self.paths = tuple(
+                        *self.paths,
+                        # pyright "Expected 1 positional argument" here: (?!)
+                        (switch, host_mnt, join(root,chr_mnt))
+                        )
                 self.mounted[host_mnt] = False
         self.mount()
 
@@ -128,7 +132,8 @@ class MagicMounts:
                 continue
             try:
                 subprocess.run(
-                    ['mount', switch, host_mnt, chr_path]. check=True)
+                    ['mount', switch, host_mnt, chr_path],
+                    check=True)
                 self.mounted[host_mnt] = True
             except subprocess.CalledProcessError as e:
                 raise MountError(*e.args) from e
@@ -143,7 +148,6 @@ class MagicMounts:
         '''
         if self.qemu_arch_static:
             os.remove(self.qemu_arch_static[-1])
-        command = ['umount', '-f']
         for _, host_mnt, chr_mnt in reversed(self.paths):
             if self.mounted[host_mnt]:
                 subprocess.run(["umount", "-f", chr_mnt])
@@ -200,7 +204,9 @@ class Chroot:
             try:
                 quoted_commands.append(shlex.quote(command))
             except TypeError as e:
-                raise ChrootError(f'failed to prepare command {command!r} for chroot') from e
+                raise ChrootError(
+                        f'failed to prepare command {command!r} for chroot'
+                        ) from e
         return [
             'chroot', self.chr_path,
             'sh', '-c',
@@ -231,7 +237,8 @@ class Chroot:
             command_chroot.extend(['-c', command])
         return subprocess.run(command_chroot, env=self.environ).returncode
 
-    def run(self, command: str, *args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
+    def run(self, command: str, *args: Any, **kwargs: Any
+            ) -> subprocess.CompletedProcess:
         """execute system command in chroot
 
         roughly analagous to `subprocess.run` except within the context of a
