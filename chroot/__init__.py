@@ -1,4 +1,4 @@
-# Copyright (c) 2021 TurnkeyLinux <admin@turnkeylinux.org>
+# Copyright (c) 2021-2025 TurnkeyLinux <admin@turnkeylinux.org>
 #
 # turnkey-chroot is open source software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License as
@@ -9,25 +9,31 @@ import os
 from os.path import abspath, join, realpath
 import shlex
 import subprocess
+import shutil
 from contextlib import contextmanager
 
 from typing import Dict, Optional, Union, TypeVar, Generator, List, Any
 
 AnyPath = TypeVar('AnyPath', str, os.PathLike)
 
-MNT_DEFAULT = {
+MNT_DEFAULT = [
         # Mounts 'devpts' and 'proc' type mounts into the chroot
-        'switch': '-t',  # use '-t' (type) switch with mount
-        'proc' : 'proc',  # label/mount_type: mount_point
-        'devpts': 'dev/pts'}
+        ("-t", "proc", "proc"),
+        ("-t", "sysfs", "sys"),
+        ("-t", "devpts", "dev/pts"),
+        ]
 
-MNT_FULL = {
+MNT_FULL = [
         # Bind mounts /dev, /sys, /proc & /run into the chroot
-        'switch': '-o',  # use '-o (bind)' (option) switch with mount
-        'proc': 'proc',  # label/host_mount: mount_point
-        'dev': 'dev',
-        'sys': 'sys',
-        'run': 'run'}
+        ("--bind", "proc", "proc"),
+        ("--bind", "sys", "sys"),
+        ("--bind", "dev", "dev"),
+        ("--bind", "dev/pts", "dev/pts"),
+        ("--bind", "run", "run"),
+        ]
+
+MNT_ARM_ON_AMD = (
+        "--bind", "proc/sys/fs/binfmt_misc", "proc/sys/fs/binfmt_misc")
 
 
 def debug(*s: Any) -> None:
@@ -65,7 +71,7 @@ def is_mounted(path: AnyPath) -> bool:
 def mount(
         target: os.PathLike,
         environ: Optional[Dict[str, str]] = None,
-        mnt_profile: Optional[Dict[str, str]] = None
+        mnt_profile: Optional[list[tuple[str, str, str]]] = None
 ) -> Generator['Chroot', None, None]:
     '''magic mount context manager
 
@@ -92,21 +98,23 @@ class MagicMounts:
     You *probably* don't want to use this object directly but rather the `mount`
     context manager, or the `Chroot` object.
     '''
-    def __init__(self, mnt_profile: Dict[str, str], root: str = "/"):
-        root = os.fspath(abspath(root))
-
+    def __init__(self,
+                 mnt_profile: list[tuple[str, str, str]],
+                 root: str = "/",
+                 qemu_arch_bin: str = ""):
         self.profile = mnt_profile
+        root = os.fspath(abspath(root))
+        self.qemu_arch_static = ()
+        if qemu_arch_bin:
+            self.qemu_arch_static = (f"/{qemu_arch_bin}",
+                                     join(root, qemu_arch_bin))
+        self.paths = tuple()
+        self.mounted: dict[str, str] = {}
 
-        if "ARM_ON_AMD" in os.environ:
-            self.profile['/usr/bin/qemu-arm-static'] = "usr/bin"
-
-        self.path: Dict[str, str] = {}
-        self.mounted: Dict[str, str] = {}
-        for k, v in self.profile.items():
-            if k != 'switch':
-                self.path[k] = join(root, v)
-                self.mounted[k] = False
-
+        for mount_item in sorted(self.profile):
+            for switch, host_mnt, chr_mnt in mount_item:
+                self.paths = tuple(*self.paths, (swtch, host_mnt, join(root, chr_mnt))
+                self.mounted[host_mnt] = False
         self.mount()
 
     def mount(self) -> None:
@@ -115,25 +123,17 @@ class MagicMounts:
         Raises:
             MountError: An error occured while trying to mount chroot
         '''
-        for host_mnt, chr_path in self.path.items():
+        for switch, host_mnt, chr_path in self.paths:
             if is_mounted(chr_path):
                 continue
-            switch = self.profile['switch']
-            if host_mnt.endswith("qemu-arm-static"):
-                switch = "-o"
-            command = ['mount', switch]
-            if switch == '-o':
-                command.extend(['bind', host_mnt, chr_path])
-            elif switch == '-t':
-                command.extend([host_mnt, f'{host_mnt}-chroot', chr_path])
-            else:
-                raise MountError(
-                        f"Unknown switch passed to mount() method: '{switch}'.")
             try:
-                subprocess.run(command, check=True)
+                subprocess.run(
+                    ['mount', switch, host_mnt, chr_path]. check=True)
                 self.mounted[host_mnt] = True
             except subprocess.CalledProcessError as e:
                 raise MountError(*e.args) from e
+        if self.qemu_arch_static:
+            shutil.copy(*self.qemu_arch_static)
 
     def umount(self) -> None:
         ''' un-mount this chroot
@@ -141,11 +141,13 @@ class MagicMounts:
         Raises:
             MountError: An error occured while trying to un-mount chroot
         '''
+        if self.qemu_arch_static:
+            os.remove(self.qemu_arch_static[-1])
         command = ['umount', '-f']
-        for mount in self.mounted.keys():
-            if self.mounted[mount]:
-                subprocess.run([*command, self.path[mount]])
-                self.mounted[mount] = False
+        for _, host_mnt, chr_mnt in reversed(self.paths):
+            if self.mounted[host_mnt]:
+                subprocess.run(["umount", "-f", chr_mnt])
+                self.mounted[host_mnt] = False
 
     def __del__(self) -> None:
         self.umount()
@@ -163,8 +165,8 @@ class Chroot:
     def __init__(
             self, newroot: AnyPath,
             environ: Optional[Dict[str, str]] = None,
-            mnt_profile: Optional[Dict[str, str]] = None):
-
+            mnt_profile: Optional[list[tuple[str, str, str]]] = None
+            ):
         if environ is None:
             environ = {}
         self.environ = {
@@ -173,11 +175,21 @@ class Chroot:
             'LC_ALL': 'C',
             'PATH': "/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/bin:/usr/sbin"
         }
+        self.qemu_arch_static = ""
+        if os.getenv('ARM_ON_AMD', ''):
+            # ideally we probably should be just adding binfmt to the existing
+            # profile - however, it's easier to just use bind mounts to ensure
+            # that chroot's proc/sys/fs/binfmt_misc is populated from host
+            mnt_profile = MNT_FULL.append(MNT_ARM_ON_AMD)
+            self.qemu_arch_static = "usr/bin/qemu-aarch64-static"
+
         self.environ.update(environ)
+
         self.profile = MNT_DEFAULT if not mnt_profile else mnt_profile
 
-        self.path: str = realpath(os.fspath(newroot))
-        self.magicmounts = MagicMounts(self.profile, self.path)
+        self.chr_path: str = realpath(os.fspath(newroot))
+        self.magicmounts = MagicMounts(self.profile, self.chr_path,
+                                       self.qemu_arch_static)
 
     def _prepare_command(self, *commands: str) -> List[str]:
         if '>' in commands or '<' in commands or '|' in commands:
@@ -190,7 +202,7 @@ class Chroot:
             except TypeError as e:
                 raise ChrootError(f'failed to prepare command {command!r} for chroot') from e
         return [
-            'chroot', self.path,
+            'chroot', self.chr_path,
             'sh', '-c',
             ' '.join(quoted_commands)
         ]
@@ -214,7 +226,7 @@ class Chroot:
         """
 
         debug('chroot.system (args) => \x1b[34m', repr(command), '\x1b[0m')
-        command_chroot = ['chroot', self.path, '/bin/bash']
+        command_chroot = ['chroot', self.chr_path, '/bin/bash']
         if command:
             command_chroot.extend(['-c', command])
         return subprocess.run(command_chroot, env=self.environ).returncode
