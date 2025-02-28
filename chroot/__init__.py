@@ -203,6 +203,7 @@ class Chroot:
         self.profile = MNT_DEFAULT if not mnt_profile else mnt_profile
 
         self.chr_path: str = realpath(os.fspath(newroot))
+        self.path = self.chr_path # for backwards compatability
         self.magicmounts = MagicMounts(self.profile, self.chr_path)
 
     def _prepare_command(self, *commands: str) -> list[str]:
