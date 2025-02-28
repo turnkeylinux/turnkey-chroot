@@ -101,14 +101,27 @@ class MagicMounts:
     def __init__(self,
                  mnt_profile: list[tuple[str, str, str]],
                  root: str = "/",
-                 qemu_arch_bin: str = ""):
+                 ):
         self.profile = mnt_profile
         root = os.fspath(abspath(root))
+
+        host_arch = os.getenv("HOST_ARCH")
+        fab_arch = os.getenv("FAB_ARCH")
+        if not host_arch:
+            raise ChrootError("HOST_ARCH is required but not set")
+        if not fab_arch:
+            fab_arch = host_arch
         self.qemu_arch_static = ()
-        if qemu_arch_bin:
+        if fab_arch != host_arch:
+            # for now:
+            # - assume that we're building arm64 on amd64
+            # - override mnt_profile
+            self.profile = MNT_FULL.append(MNT_ARM_ON_AMD)
+            qemu_arch_bin = "usr/bin/qemu-aarch64-static"
             self.qemu_arch_static = (f"/{qemu_arch_bin}",
                                      join(root, qemu_arch_bin))
-        self.paths = tuple()
+
+        self.paths = ()
         self.mounted: dict[str, bool] = {}
 
         for mount_item in sorted(self.profile):
@@ -116,7 +129,7 @@ class MagicMounts:
                 self.paths = tuple(
                         *self.paths,
                         # pyright "Expected 1 positional argument" here: (?!)
-                        (switch, host_mnt, join(root,chr_mnt))
+                        (switch, host_mnt, join(root, chr_mnt))
                         )
                 self.mounted[host_mnt] = False
         self.mount()
@@ -179,21 +192,12 @@ class Chroot:
             'LC_ALL': 'C',
             'PATH': "/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/bin:/usr/sbin"
         }
-        self.qemu_arch_static = ""
-        if os.getenv('ARM_ON_AMD', ''):
-            # ideally we probably should be just adding binfmt to the existing
-            # profile - however, it's easier to just use bind mounts to ensure
-            # that chroot's proc/sys/fs/binfmt_misc is populated from host
-            mnt_profile = MNT_FULL.append(MNT_ARM_ON_AMD)
-            self.qemu_arch_static = "usr/bin/qemu-aarch64-static"
-
         self.environ.update(environ)
 
         self.profile = MNT_DEFAULT if not mnt_profile else mnt_profile
 
         self.chr_path: str = realpath(os.fspath(newroot))
-        self.magicmounts = MagicMounts(self.profile, self.chr_path,
-                                       self.qemu_arch_static)
+        self.magicmounts = MagicMounts(self.profile, self.chr_path)
 
     def _prepare_command(self, *commands: str) -> list[str]:
         if '>' in commands or '<' in commands or '|' in commands:
