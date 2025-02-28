@@ -102,11 +102,14 @@ class MagicMounts:
                  mnt_profile: list[tuple[str, str, str]],
                  root: str = "/",
                  ):
-        self.profile = mnt_profile
+        self.profile = mnt_profile if mnt_profile else MNT_DEFAULT
+        print(f"{self.profile=}")
         root = os.fspath(abspath(root))
 
         host_arch = os.getenv("HOST_ARCH")
         fab_arch = os.getenv("FAB_ARCH")
+        print(f"{host_arch=} {fab_arch=}")
+        print(f"* {MNT_DEFAULT=}\n* {MNT_FULL=}\n* {MNT_ARM_ON_AMD=}")
         if not host_arch:
             raise ChrootError("HOST_ARCH is required but not set")
         if not fab_arch:
@@ -116,22 +119,26 @@ class MagicMounts:
             # for now:
             # - assume that we're building arm64 on amd64
             # - override mnt_profile
-            self.profile = MNT_FULL.append(MNT_ARM_ON_AMD)
+            MNT_FULL.append(MNT_ARM_ON_AMD)
+            self.profile = MNT_FULL
             qemu_arch_bin = "usr/bin/qemu-aarch64-static"
             self.qemu_arch_static = (f"/{qemu_arch_bin}",
                                      join(root, qemu_arch_bin))
-
+        print(f"{self.profile=}")
         self.paths = ()
         self.mounted: dict[str, bool] = {}
 
         for mount_item in sorted(self.profile):
-            for switch, host_mnt, chr_mnt in mount_item:
-                self.paths = tuple(
-                        *self.paths,
-                        # pyright "Expected 1 positional argument" here: (?!)
-                        (switch, host_mnt, join(root, chr_mnt))
-                        )
-                self.mounted[host_mnt] = False
+
+            print(f"{mount_item=}")
+            print(f"{len(mount_item)=}")
+            switch, host_mnt, chr_mnt = mount_item
+            self.paths = tuple(
+                    *self.paths,
+                    # pyright "Expected 1 positional argument" here: (?!)
+                    (switch, host_mnt, join(root, chr_mnt))
+                    )
+            self.mounted[host_mnt] = False
         self.mount()
 
     def mount(self) -> None:
