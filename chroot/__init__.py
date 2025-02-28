@@ -167,9 +167,9 @@ class MagicMounts:
                 os.remove(self.qemu_arch_static[-1])
             except FileNotFoundError:
                 pass
-        for _, host_mnt, chr_mnt in reversed(self.paths):
+        for _, _, chr_mnt in reversed(self.paths):
             if self.mounted[chr_mnt]:
-                p = subprocess.run(["umount", "-f", chr_mnt], capture_output=True, text=True)
+                subprocess.run(["umount", "-f", chr_mnt])
                 self.mounted[chr_mnt] = False
 
     def __del__(self) -> None:
