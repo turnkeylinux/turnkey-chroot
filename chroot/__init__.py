@@ -134,9 +134,9 @@ class MagicMounts:
             print(f"{len(mount_item)=}")
             switch, host_mnt, chr_mnt = mount_item
             self.paths = tuple(
-                    *self.paths,
-                    # pyright "Expected 1 positional argument" here: (?!)
-                    (switch, host_mnt, join(root, chr_mnt))
+                    [*self.paths,
+                     (switch, host_mnt, join(root, chr_mnt))
+                     ]
                     )
             self.mounted[host_mnt] = False
         self.mount()
