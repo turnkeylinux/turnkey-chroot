@@ -6,7 +6,7 @@
 # License, or (at your option) any later version.
 
 import os
-from os.path import abspath, join, realpath
+from os.path import abspath, join, realpath, exists
 import shlex
 import subprocess
 import shutil
@@ -25,15 +25,15 @@ MNT_DEFAULT = [
 
 MNT_FULL = [
         # Bind mounts /dev, /sys, /proc & /run into the chroot
-        ("--bind", "proc", "proc"),
-        ("--bind", "sys", "sys"),
-        ("--bind", "dev", "dev"),
-        ("--bind", "dev/pts", "dev/pts"),
-        ("--bind", "run", "run"),
+        ("--bind", "/proc", "proc"),
+        ("--bind", "/sys", "sys"),
+        ("--bind", "/dev", "dev"),
+        ("--bind", "/dev/pts", "dev/pts"),
+        ("--bind", "/run", "run"),
         ]
 
 MNT_ARM_ON_AMD = (
-        "--bind", "proc/sys/fs/binfmt_misc", "proc/sys/fs/binfmt_misc")
+        "--bind", "/proc/sys/fs/binfmt_misc", "proc/sys/fs/binfmt_misc")
 
 
 def debug(*s: Any) -> None:
@@ -103,42 +103,37 @@ class MagicMounts:
                  root: str = "/",
                  ):
         self.profile = mnt_profile if mnt_profile else MNT_DEFAULT
-        print(f"{self.profile=}")
         root = os.fspath(abspath(root))
+        self.qemu_arch_static = ()
 
         host_arch = os.getenv("HOST_ARCH")
         fab_arch = os.getenv("FAB_ARCH")
-        print(f"{host_arch=} {fab_arch=}")
-        print(f"* {MNT_DEFAULT=}\n* {MNT_FULL=}\n* {MNT_ARM_ON_AMD=}")
-        if not host_arch:
-            raise ChrootError("HOST_ARCH is required but not set")
-        if not fab_arch:
-            fab_arch = host_arch
-        self.qemu_arch_static = ()
-        if fab_arch != host_arch:
-            # for now:
-            # - assume that we're building arm64 on amd64
-            # - override mnt_profile
-            MNT_FULL.append(MNT_ARM_ON_AMD)
-            self.profile = MNT_FULL
-            qemu_arch_bin = "usr/bin/qemu-aarch64-static"
-            self.qemu_arch_static = (f"/{qemu_arch_bin}",
-                                     join(root, qemu_arch_bin))
-        print(f"{self.profile=}")
+        if fab_arch:
+            if not host_arch:
+                raise ChrootError(
+                        "If FAB_ARCH is set, HOST_ARCH is also required")
+            elif host_arch and host_arch != fab_arch:
+                # for now:
+                # - assume that we're building arm64 on amd64
+                # - override mnt_profile
+                MNT_FULL.append(MNT_ARM_ON_AMD)
+                self.profile = MNT_FULL
+                qemu_arch_bin = "usr/bin/qemu-aarch64-static"
+                self.qemu_arch_static = (f"/{qemu_arch_bin}",
+                                        join(root, qemu_arch_bin))
+
         self.paths = ()
         self.mounted: dict[str, bool] = {}
 
         for mount_item in sorted(self.profile):
-
-            print(f"{mount_item=}")
-            print(f"{len(mount_item)=}")
             switch, host_mnt, chr_mnt = mount_item
+            chr_mnt = join(root, chr_mnt)
             self.paths = tuple(
                     [*self.paths,
-                     (switch, host_mnt, join(root, chr_mnt))
+                     (switch, host_mnt, chr_mnt)
                      ]
                     )
-            self.mounted[host_mnt] = False
+            self.mounted[chr_mnt] = False
         self.mount()
 
     def mount(self) -> None:
@@ -147,14 +142,15 @@ class MagicMounts:
         Raises:
             MountError: An error occured while trying to mount chroot
         '''
-        for switch, host_mnt, chr_path in self.paths:
-            if is_mounted(chr_path):
+        for switch, host_mnt, chr_mnt in self.paths:
+            if is_mounted(chr_mnt):
+                self.mounted[chr_mnt] = True
                 continue
             try:
                 subprocess.run(
-                    ['mount', switch, host_mnt, chr_path],
+                    ['mount', switch, host_mnt, chr_mnt],
                     check=True)
-                self.mounted[host_mnt] = True
+                self.mounted[chr_mnt] = True
             except subprocess.CalledProcessError as e:
                 raise MountError(*e.args) from e
         if self.qemu_arch_static:
@@ -167,11 +163,14 @@ class MagicMounts:
             MountError: An error occured while trying to un-mount chroot
         '''
         if self.qemu_arch_static:
-            os.remove(self.qemu_arch_static[-1])
+            try:
+                os.remove(self.qemu_arch_static[-1])
+            except FileNotFoundError:
+                pass
         for _, host_mnt, chr_mnt in reversed(self.paths):
-            if self.mounted[host_mnt]:
-                subprocess.run(["umount", "-f", chr_mnt])
-                self.mounted[host_mnt] = False
+            if self.mounted[chr_mnt]:
+                p = subprocess.run(["umount", "-f", chr_mnt], capture_output=True, text=True)
+                self.mounted[chr_mnt] = False
 
     def __del__(self) -> None:
         self.umount()
