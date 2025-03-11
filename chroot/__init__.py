@@ -102,7 +102,8 @@ class MagicMounts:
                  mnt_profile: list[tuple[str, str, str]],
                  root: str = "/",
                  ):
-        self.profile = mnt_profile if mnt_profile else MNT_DEFAULT
+        #self.profile = mnt_profile if mnt_profile else MNT_DEFAULT
+        self.profile = MNT_FULL
         root = os.fspath(abspath(root))
         self.qemu_arch_static = ()
 
@@ -121,6 +122,8 @@ class MagicMounts:
                 qemu_arch_bin = "usr/bin/qemu-aarch64-static"
                 self.qemu_arch_static = (f"/{qemu_arch_bin}",
                                         join(root, qemu_arch_bin))
+        elif host_arch:
+            self.profile = MNT_FULL
 
         self.paths = ()
         self.mounted: dict[str, bool] = {}
