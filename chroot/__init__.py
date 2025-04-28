@@ -1,4 +1,4 @@
-# Copyright (c) 2021 TurnkeyLinux <admin@turnkeylinux.org>
+# Copyright (c) 2021-2025 TurnkeyLinux <admin@turnkeylinux.org>
 #
 # turnkey-chroot is open source software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License as
@@ -6,28 +6,34 @@
 # License, or (at your option) any later version.
 
 import os
-from os.path import abspath, join, realpath
+from os.path import abspath, join, realpath, exists
 import shlex
 import subprocess
+import shutil
 from contextlib import contextmanager
 
-from typing import Dict, Optional, Union, TypeVar, Generator, List, Any
+from typing import TypeVar, Generator, Any
 
 AnyPath = TypeVar('AnyPath', str, os.PathLike)
 
-MNT_DEFAULT = {
+MNT_DEFAULT = [
         # Mounts 'devpts' and 'proc' type mounts into the chroot
-        'switch': '-t',  # use '-t' (type) switch with mount
-        'proc' : 'proc',  # label/mount_type: mount_point
-        'devpts': 'dev/pts'}
+        ("-t", "proc", "proc"),
+        ("-t", "sysfs", "sys"),
+        ("-t", "devpts", "dev/pts"),
+        ]
 
-MNT_FULL = {
+MNT_FULL = [
         # Bind mounts /dev, /sys, /proc & /run into the chroot
-        'switch': '-o',  # use '-o (bind)' (option) switch with mount
-        'proc': 'proc',  # label/host_mount: mount_point
-        'dev': 'dev',
-        'sys': 'sys',
-        'run': 'run'}
+        ("--bind", "/proc", "proc"),
+        ("--bind", "/sys", "sys"),
+        ("--bind", "/dev", "dev"),
+        ("--bind", "/dev/pts", "dev/pts"),
+        ("--bind", "/run", "run"),
+        ]
+
+MNT_ARM_ON_AMD = (
+        "--bind", "/proc/sys/fs/binfmt_misc", "proc/sys/fs/binfmt_misc")
 
 
 def debug(*s: Any) -> None:
@@ -50,12 +56,12 @@ def is_mounted(path: AnyPath) -> bool:
     os.PathLike interface, this includes `str`, `bytes` and path objects
     provided by `pathlib` in the standard library.
     '''
-    raw_path: Union[str, bytes] = os.fspath(path)
+    raw_path: str | bytes = os.fspath(path)
     mode = 'rb' if isinstance(raw_path, bytes) else 'r'
     sep = b' ' if isinstance(raw_path, bytes) else ' '
     with open('/proc/mounts', mode) as fob:
         for line in fob:
-            host, guest, *others = line.split(sep)
+            _, guest, *_ = line.split(sep)
             if guest == path:
                 return True
     return False
@@ -64,8 +70,8 @@ def is_mounted(path: AnyPath) -> bool:
 @contextmanager
 def mount(
         target: os.PathLike,
-        environ: Optional[Dict[str, str]] = None,
-        mnt_profile: Optional[Dict[str, str]] = None
+        environ: dict[str, str] | None = None,
+        mnt_profile: list[tuple[str, str, str]] | None = None
 ) -> Generator['Chroot', None, None]:
     '''magic mount context manager
 
@@ -92,18 +98,45 @@ class MagicMounts:
     You *probably* don't want to use this object directly but rather the `mount`
     context manager, or the `Chroot` object.
     '''
-    def __init__(self, mnt_profile: Dict[str, str], root: str = "/"):
+    def __init__(self,
+                 mnt_profile: list[tuple[str, str, str]],
+                 root: str = "/",
+                 ):
+        #self.profile = mnt_profile if mnt_profile else MNT_DEFAULT
+        self.profile = MNT_FULL
         root = os.fspath(abspath(root))
+        self.qemu_arch_static = ()
 
-        self.profile = mnt_profile
+        host_arch = os.getenv("HOST_ARCH")
+        fab_arch = os.getenv("FAB_ARCH")
+        if fab_arch:
+            if not host_arch:
+                raise ChrootError(
+                        "If FAB_ARCH is set, HOST_ARCH is also required")
+            elif host_arch and host_arch != fab_arch:
+                # for now:
+                # - assume that we're building arm64 on amd64
+                # - override mnt_profile
+                MNT_FULL.append(MNT_ARM_ON_AMD)
+                self.profile = MNT_FULL
+                qemu_arch_bin = "usr/bin/qemu-aarch64-static"
+                self.qemu_arch_static = (f"/{qemu_arch_bin}",
+                                        join(root, qemu_arch_bin))
+        elif host_arch:
+            self.profile = MNT_FULL
 
-        self.path: Dict[str, str] = {}
-        self.mounted: Dict[str, str] = {}
-        for k, v in self.profile.items():
-            if k != 'switch':
-                self.path[k] = join(root, v)
-                self.mounted[k] = False
+        self.paths = ()
+        self.mounted: dict[str, bool] = {}
 
+        for mount_item in sorted(self.profile):
+            switch, host_mnt, chr_mnt = mount_item
+            chr_mnt = join(root, chr_mnt)
+            self.paths = tuple(
+                    [*self.paths,
+                     (switch, host_mnt, chr_mnt)
+                     ]
+                    )
+            self.mounted[chr_mnt] = False
         self.mount()
 
     def mount(self) -> None:
@@ -112,23 +145,19 @@ class MagicMounts:
         Raises:
             MountError: An error occured while trying to mount chroot
         '''
-        for host_mnt, chr_path in self.path.items():
-            if is_mounted(chr_path):
+        for switch, host_mnt, chr_mnt in self.paths:
+            if is_mounted(chr_mnt):
+                self.mounted[chr_mnt] = True
                 continue
-            switch = self.profile['switch']
-            command = ['mount', switch]
-            if switch == '-o':
-                command.extend(['bind', host_mnt, chr_path])
-            elif switch == '-t':
-                command.extend([host_mnt, f'{host_mnt}-chroot', chr_path])
-            else:
-                raise MountError(
-                        f"Unknown switch passed to mount() method: '{switch}'.")
             try:
-                subprocess.run(command, check=True)
-                self.mounted[host_mnt] = True
+                subprocess.run(
+                    ['mount', switch, host_mnt, chr_mnt],
+                    check=True)
+                self.mounted[chr_mnt] = True
             except subprocess.CalledProcessError as e:
                 raise MountError(*e.args) from e
+        if self.qemu_arch_static:
+            shutil.copy(*self.qemu_arch_static)
 
     def umount(self) -> None:
         ''' un-mount this chroot
@@ -136,11 +165,15 @@ class MagicMounts:
         Raises:
             MountError: An error occured while trying to un-mount chroot
         '''
-        command = ['umount', '-f']
-        for mount in self.mounted.keys():
-            if self.mounted[mount]:
-                subprocess.run([*command, self.path[mount]])
-                self.mounted[mount] = False
+        if self.qemu_arch_static:
+            try:
+                os.remove(self.qemu_arch_static[-1])
+            except FileNotFoundError:
+                pass
+        for _, _, chr_mnt in reversed(self.paths):
+            if self.mounted[chr_mnt]:
+                subprocess.run(["umount", "-f", chr_mnt])
+                self.mounted[chr_mnt] = False
 
     def __del__(self) -> None:
         self.umount()
@@ -157,9 +190,9 @@ class Chroot:
     '''
     def __init__(
             self, newroot: AnyPath,
-            environ: Optional[Dict[str, str]] = None,
-            mnt_profile: Optional[Dict[str, str]] = None):
-
+            environ: dict[str, str] | None = None,
+            mnt_profile: list[tuple[str, str, str]] | None = None
+            ):
         if environ is None:
             environ = {}
         self.environ = {
@@ -169,12 +202,14 @@ class Chroot:
             'PATH': "/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/bin:/usr/sbin"
         }
         self.environ.update(environ)
+
         self.profile = MNT_DEFAULT if not mnt_profile else mnt_profile
 
-        self.path: str = realpath(os.fspath(newroot))
-        self.magicmounts = MagicMounts(self.profile, self.path)
+        self.chr_path: str = realpath(os.fspath(newroot))
+        self.path = self.chr_path # for backwards compatability
+        self.magicmounts = MagicMounts(self.profile, self.chr_path)
 
-    def _prepare_command(self, *commands: str) -> List[str]:
+    def _prepare_command(self, *commands: str) -> list[str]:
         if '>' in commands or '<' in commands or '|' in commands:
             raise ChrootError("Output redirects and pipes not supported in"
                               f"fab-chroot (command: `{commands}')")
@@ -183,14 +218,16 @@ class Chroot:
             try:
                 quoted_commands.append(shlex.quote(command))
             except TypeError as e:
-                raise ChrootError(f'failed to prepare command {command!r} for chroot') from e
+                raise ChrootError(
+                        f'failed to prepare command {command!r} for chroot'
+                        ) from e
         return [
-            'chroot', self.path,
+            'chroot', self.chr_path,
             'sh', '-c',
             ' '.join(quoted_commands)
         ]
 
-    def system(self, command: Optional[str] = None) -> int:
+    def system(self, command: str | None = None) -> int:
         """execute system command in chroot
 
         roughly analagous to `os.system` except within the context of a chroot
@@ -209,12 +246,13 @@ class Chroot:
         """
 
         debug('chroot.system (args) => \x1b[34m', repr(command), '\x1b[0m')
-        command_chroot = ['chroot', self.path, '/bin/bash']
+        command_chroot = ['chroot', self.chr_path, '/bin/bash']
         if command:
             command_chroot.extend(['-c', command])
         return subprocess.run(command_chroot, env=self.environ).returncode
 
-    def run(self, command: str, *args: Any, **kwargs: Any) -> subprocess.CompletedProcess:
+    def run(self, command: str, *args: Any, **kwargs: Any
+            ) -> subprocess.CompletedProcess:
         """execute system command in chroot
 
         roughly analagous to `subprocess.run` except within the context of a
