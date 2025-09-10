@@ -11,7 +11,7 @@ import shlex
 import subprocess
 from contextlib import contextmanager
 
-from typing import Dict, Optional, Union, TypeVar, Generator, List, Any
+from typing import Generator, TypeVar, Any
 
 AnyPath = TypeVar("AnyPath", str, os.PathLike)
 
@@ -52,7 +52,7 @@ def is_mounted(path: AnyPath) -> bool:
     os.PathLike interface, this includes `str`, `bytes` and path objects
     provided by `pathlib` in the standard library.
     """
-    raw_path: Union[str, bytes] = os.fspath(path)
+    raw_path: str | bytes = os.fspath(path)
     mode = "rb" if isinstance(raw_path, bytes) else "r"
     sep = b" " if isinstance(raw_path, bytes) else " "
     with open("/proc/mounts", mode) as fob:
@@ -66,8 +66,8 @@ def is_mounted(path: AnyPath) -> bool:
 @contextmanager
 def mount(
     target: os.PathLike,
-    environ: Optional[Dict[str, str]] = None,
-    mnt_profile: Optional[Dict[str, str]] = None,
+    environ: dict[str, str] | None = None,
+    mnt_profile: dict[str, str] | None = None,
 ) -> Generator["Chroot", None, None]:
     """magic mount context manager
 
@@ -95,13 +95,13 @@ class MagicMounts:
     context manager, or the `Chroot` object.
     """
 
-    def __init__(self, mnt_profile: Dict[str, str], root: str = "/"):
+    def __init__(self, mnt_profile: dict[str, str], root: str = "/"):
         root = os.fspath(abspath(root))
 
         self.profile = mnt_profile
 
-        self.path: Dict[str, str] = {}
-        self.mounted: Dict[str, str] = {}
+        self.path: dict[str, str] = {}
+        self.mounted: dict[str, bool] = {}
         for k, v in self.profile.items():
             if k != "switch":
                 self.path[k] = join(root, v)
@@ -163,8 +163,8 @@ class Chroot:
     def __init__(
         self,
         newroot: AnyPath,
-        environ: Optional[Dict[str, str]] = None,
-        mnt_profile: Optional[Dict[str, str]] = None,
+        environ: dict[str, str] | None = None,
+        mnt_profile: dict[str, str] | None = None,
     ):
         if environ is None:
             environ = {}
@@ -180,7 +180,7 @@ class Chroot:
         self.path: str = realpath(os.fspath(newroot))
         self.magicmounts = MagicMounts(self.profile, self.path)
 
-    def _prepare_command(self, *commands: str) -> List[str]:
+    def _prepare_command(self, *commands: str) -> list[str]:
         if ">" in commands or "<" in commands or "|" in commands:
             raise ChrootError(
                 "Output redirects and pipes not supported in"
@@ -196,7 +196,7 @@ class Chroot:
                 ) from e
         return ["chroot", self.path, "sh", "-c", " ".join(quoted_commands)]
 
-    def system(self, command: Optional[str] = None) -> int:
+    def system(self, command: str | None = None) -> int:
         """execute system command in chroot
 
         roughly analagous to `os.system` except within the context of a chroot
