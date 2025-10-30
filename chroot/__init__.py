@@ -6,12 +6,12 @@
 # License, or (at your option) any later version.
 
 import os
-from os.path import abspath, join, realpath
 import shlex
 import subprocess
+from collections.abc import Generator
 from contextlib import contextmanager
-
-from typing import Generator, TypeVar, Any
+from os.path import abspath, join, realpath
+from typing import Any, TypeVar
 
 AnyPath = TypeVar("AnyPath", str, os.PathLike)
 
