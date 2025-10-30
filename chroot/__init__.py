@@ -32,7 +32,7 @@ MNT_FULL = {
 }
 
 
-def debug(*s: Any) -> None:
+def debug(*s: Any) -> None:  # noqa: ANN401
     if os.getenv("TKL_CHROOT_DEBUG", ""):
         print(*s)
 
@@ -57,7 +57,7 @@ def is_mounted(path: AnyPath) -> bool:
     sep = b" " if isinstance(raw_path, bytes) else " "
     with open("/proc/mounts", mode) as fob:
         for line in fob:
-            host, guest, *others = line.split(sep)
+            _, guest, *_ = line.split(sep)
             if guest == path:
                 return True
     return False
@@ -91,11 +91,11 @@ def mount(
 class MagicMounts:
     """MagicMounts: An object which manages mounting/unmounting a chroot.
 
-    You *probably* don't want to use this object directly but rather the `mount`
-    context manager, or the `Chroot` object.
+    You *probably* don't want to use this object directly but rather the
+    `mount` context manager, or the `Chroot` object.
     """
 
-    def __init__(self, mnt_profile: dict[str, str], root: str = "/"):
+    def __init__(self, mnt_profile: dict[str, str], root: str = "/") -> None:
         root = os.fspath(abspath(root))
 
         self.profile = mnt_profile
@@ -165,14 +165,15 @@ class Chroot:
         newroot: AnyPath,
         environ: dict[str, str] | None = None,
         mnt_profile: dict[str, str] | None = None,
-    ):
+    ) -> None:
         if environ is None:
             environ = {}
         self.environ = {
             "HOME": "/root",
             "TERM": os.environ["TERM"],
             "LC_ALL": "C",
-            "PATH": "/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/bin:/usr/sbin",
+            "PATH":
+                "/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/bin:/usr/sbin",
         }
         self.environ.update(environ)
         self.profile = MNT_DEFAULT if not mnt_profile else mnt_profile
@@ -221,7 +222,9 @@ class Chroot:
         return subprocess.run(command_chroot, env=self.environ).returncode
 
     def run(
-        self, command: str, *args: Any, **kwargs: Any
+        # args & kwargs should ideally be typed to ensure no issues with
+        # subprocess call
+        self, command: str, *args: Any, **kwargs: Any  # noqa: ANN401
     ) -> subprocess.CompletedProcess:
         """execute system command in chroot
 
@@ -250,4 +253,8 @@ class Chroot:
         debug("chroot.run (args) => \x1b[34m", repr(command), "\x1b[0m")
         cmd = self._prepare_command(*command)
         debug("chroot.run (prepared cmd) => \x1b[33m", repr(cmd), "\x1b[0m")
-        return subprocess.run(cmd, env=self.environ, *args, **kwargs)
+        # ignore "call-overload" typing error because args & kwargs are "Any"
+        # - see previous comment
+        return subprocess.run(
+            cmd, *args, env=self.environ, **kwargs
+        )  # type: ignore[call-overload]
