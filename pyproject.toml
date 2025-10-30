@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=77.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "turnkey-chroot"
+version = "1.1.0"
+authors = [{name = "TurnKey GNU/Linux", email = "jeremy@turnkeylinux.org"}]
+license = "GPL-3.0-or-later"
+description = "A library to interact with and/or run commands in a chroot"
+
+[project.urls]
+Homepage = "https://github.com/turnkeylinux/turnkey-chroot"
+
+[tool.setuptools]
+packages = ["chroot"]
+include-package-data = false
+
+[tool.setuptools.package-data]
+fablib = ["py.typed"]
