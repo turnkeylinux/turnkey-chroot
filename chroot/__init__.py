@@ -16,16 +16,20 @@ from typing import Any, TypeVar
 AnyPath = TypeVar("AnyPath", str, os.PathLike)
 
 MNT_DEFAULT = {
-    # Mounts 'devpts' and 'proc' type mounts into the chroot
-    "switch": "-t",  # use '-t' (type) switch with mount
-    "proc": "proc",  # label/mount_type: mount_point
+    # Mount types, rather than bind mounts - note /dev always needs bind mount
+    "switch": "--type",
+    # mount_type/host_mount: mount_point
+    "proc": "proc",
+    "sysfs": "sys",
+    "dev": "dev",
     "devpts": "dev/pts",
 }
 
 MNT_FULL = {
     # Bind mounts /dev, /sys, /proc & /run into the chroot
-    "switch": "-o",  # use '-o (bind)' (option) switch with mount
-    "proc": "proc",  # label/host_mount: mount_point
+    "switch": "--bind",
+    # label/host_mount: mount_point
+    "proc": "proc",
     "dev": "dev",
     "sys": "sys",
     "run": "run",
@@ -98,14 +102,14 @@ class MagicMounts:
     def __init__(self, mnt_profile: dict[str, str], root: str = "/") -> None:
         root = os.fspath(abspath(root))
 
+        self.switch = mnt_profile.pop("switch")
         self.profile = mnt_profile
 
         self.path: dict[str, str] = {}
         self.mounted: dict[str, bool] = {}
-        for k, v in self.profile.items():
-            if k != "switch":
-                self.path[k] = join(root, v)
-                self.mounted[k] = False
+        for host_mount, chroot_mount in self.path.items():
+            self.path[host_mount] = join(root, chroot_mount)
+            self.mounted[host_mount] = False
 
         self.mount()
 
@@ -115,22 +119,30 @@ class MagicMounts:
         Raises:
             MountError: An error occured while trying to mount chroot
         """
-        for host_mnt, chr_path in self.path.items():
-            if is_mounted(chr_path):
+        for host_mount, chroot_path in self.path.items():
+            if is_mounted(chroot_path):
                 continue
-            switch = self.profile["switch"]
+                self.mounted[host_mount] = True
+            switch = self.switch
+            if host_mount == "dev":
+                switch = "--bind"  # dev should always be bind mounted
             command = ["mount", switch]
-            if switch == "-o":
-                command.extend(["bind", host_mnt, chr_path])
-            elif switch == "-t":
-                command.extend([host_mnt, f"{host_mnt}-chroot", chr_path])
+            if switch == "--type":
+                if host_mount == "proc":
+                    command.extend([host_mount, "proc", chroot_path])
+                elif host_mount == "sysfs":
+                    command.extend([host_mount, "sys", chroot_path])
+                elif host_mount == "devpts":
+                    command.extend([host_mount, "pts", chroot_path])
+            elif switch == "--bind":
+                command.extend([f"/{host_mount}", chroot_path])
             else:
                 raise MountError(
                     f"Unknown switch passed to mount() method: '{switch}'."
                 )
             try:
                 subprocess.run(command, check=True)
-                self.mounted[host_mnt] = True
+                self.mounted[host_mount] = True
             except subprocess.CalledProcessError as e:
                 raise MountError(*e.args) from e
 
@@ -140,10 +152,24 @@ class MagicMounts:
         Raises:
             MountError: An error occured while trying to un-mount chroot
         """
-        command = ["umount", "-f"]
+        def _umount(path: str) -> None:
+            try:
+                subprocess.run(["umount", "--force", path], check=True)
+            except subprocess.CalledProcessError as e:
+                raise MountError from e
+
         for mount in self.mounted.keys():
             if self.mounted[mount]:
-                subprocess.run([*command, self.path[mount]])
+                # when relevant, ensure <chroot>/dev/pts is unmounted before
+                # trying to unmount <chroot>/dev
+                if (
+                    mount == "dev"
+                    and "devpts" in self.path.keys()
+                    and self.mounted["devpts"]
+                ):
+                    _umount(self.path["devpts"])
+                    self.mounted["devpts"] = False
+                _umount(self.path[mount])
                 self.mounted[mount] = False
 
     def __del__(self) -> None:
