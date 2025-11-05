@@ -156,8 +156,8 @@ class Chroot:
 
     Example usage:
 
-        >>> foo = Chroot('/path/to/chroot', { 'ENVVAR': 'bar' })
-        >>> assert 'ENVVAR=bar' in foo.run(['env'], text=True).stdout
+        >>> foo = Chroot("/path/to/chroot", {"ENVVAR": "bar"})
+        >>> assert "ENVVAR=bar" in foo.run(["env"], text=True).stdout
     """
 
     def __init__(
@@ -222,9 +222,10 @@ class Chroot:
         return subprocess.run(command_chroot, env=self.environ).returncode
 
     def run(
-        # args & kwargs should ideally be typed to ensure no issues with
-        # subprocess call
-        self, command: str, *args: Any, **kwargs: Any  # noqa: ANN401
+        self,
+        command: str | list[str],
+        *args: str,
+        **kwargs: str | dict[str, str] | int | bool | None,
     ) -> subprocess.CompletedProcess:
         """execute system command in chroot
 
@@ -251,10 +252,13 @@ class Chroot:
                 exitcode != 0
         """
         debug("chroot.run (args) => \x1b[34m", repr(command), "\x1b[0m")
+        if isinstance(command, str):
+            command = command.split()
         cmd = self._prepare_command(*command)
         debug("chroot.run (prepared cmd) => \x1b[33m", repr(cmd), "\x1b[0m")
-        # ignore "call-overload" typing error because args & kwargs are "Any"
-        # - see previous comment
+        # typing subprocess here is too complex, so ignore type error
         return subprocess.run(
-            cmd, *args, env=self.environ, **kwargs
+            cmd,
+            *args,
+            env=os.environ,
         )  # type: ignore[call-overload]
