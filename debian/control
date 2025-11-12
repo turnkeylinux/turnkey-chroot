@@ -1,5 +1,5 @@
 Source: turnkey-chroot
-Section: misc
+Section: python
 Priority: optional
 Maintainer: Stefan Davis <stefan@turnkeylinux.org>
 Build-Depends:
@@ -14,4 +14,4 @@ Architecture: all
 Depends:
  ${misc:Depends},
  ${python3:Depends},
-Description: A library for interacting with and/or running command within chroots
+Description: A library to interact with and/or run commands in a chroot
