@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "turnkey-chroot"
 version = "1.1.0"
 authors = [{name = "TurnKey GNU/Linux", email = "jeremy@turnkeylinux.org"}]
-license = "GPL-3.0-or-later"
+license = {text = "GPLv3+"}
 description = "A library to interact with and/or run commands in a chroot"
 
 [project.urls]
