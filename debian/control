@@ -5,7 +5,9 @@ Maintainer: Stefan Davis <stefan@turnkeylinux.org>
 Build-Depends:
  debhelper (>= 10),
  python3-all (>= 3.11~),
- dh-python
+ dh-python,
+ pybuild-plugin-pyproject,
+ python3-packaging,
 Standards-Version: 4.0.0
 X-Python-Version: >= 3.11
 
