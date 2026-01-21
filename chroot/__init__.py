@@ -286,5 +286,6 @@ class Chroot:
         return subprocess.run(
             cmd,
             *args,
-            env=os.environ,
+            env=self.environ,
+            **kwargs,
         )  # type: ignore[call-overload]
