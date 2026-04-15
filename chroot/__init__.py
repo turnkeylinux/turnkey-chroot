@@ -202,7 +202,7 @@ class Chroot:
                 "/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/bin:/usr/sbin",
         }
         self.environ.update(environ)
-        self.profile = MNT_DEFAULT if not mnt_profile else mnt_profile
+        self.profile = dict(MNT_DEFAULT) if not mnt_profile else dict(mnt_profile)
 
         self.path: str = realpath(os.fspath(newroot))
         self.magicmounts = MagicMounts(self.profile, self.path)
