@@ -114,7 +114,7 @@ class MagicMounts:
 
         self.path: dict[str, str] = {}
         self.mounted: dict[str, bool] = {}
-        for host_mount, chroot_mount in self.path.items():
+        for host_mount, chroot_mount in self.profile.items():
             self.path[host_mount] = join(root, chroot_mount)
             self.mounted[host_mount] = False
 
