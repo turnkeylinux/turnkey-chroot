@@ -63,7 +63,7 @@ def is_mounted[AnyPath](path: AnyPath) -> bool:
     with open("/proc/mounts", mode) as fob:
         for line in fob:
             _, guest, *_ = line.split(sep)
-            if guest == path:
+            if guest == raw_path:
                 return True
     return False
 
