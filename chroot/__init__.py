@@ -4,6 +4,7 @@
 # modify it under the terms of the GNU General Public License as
 # published by the Free Software Foundation; either version 3 of the
 # License, or (at your option) any later version.
+"""Set up, run commands within, and tear down a chroot."""
 
 import os
 import shlex
@@ -145,6 +146,8 @@ class MagicMounts:
                     command.extend([host_mount, "sys", chroot_path])
                 elif host_mount == "devpts":
                     command.extend([host_mount, "pts", chroot_path])
+                elif host_mount == "tmpfs":
+                    command.extend([host_mount, "tmpfs", chroot_path])
             elif switch == "--bind":
                 command.extend([f"/{host_mount}", chroot_path])
             else:
@@ -307,11 +310,13 @@ class Chroot:
             command = command.split()
         cmd = self._prepare_command(*command)
         debug("chroot.run (prepared cmd) => \x1b[33m", repr(cmd), "\x1b[0m")
+        # default check to False but allow callers to override via kwargs
+        check = bool(kwargs.pop("check", False))
         # typing subprocess here is too complex, so ignore type error
         return subprocess.run(
             cmd,
             *args,
             env=self.environ,
-            check=False,
+            check=check,
             **kwargs,
         )  # type: ignore[call-overload]
