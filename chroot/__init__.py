@@ -134,7 +134,6 @@ class MagicMounts:
         for host_mount, chroot_path in self.path.items():
             if is_mounted(chroot_path):
                 continue
-                self.mounted[host_mount] = True
             switch = self.switch
             if host_mount == "dev":
                 switch = "--bind"  # dev should always be bind mounted
