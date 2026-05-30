@@ -96,7 +96,11 @@ def mount(
         a `Chroot` object representing a mounted chroot at the given location
 
     """
-    yield Chroot(target, environ, mnt_profile)
+    chroot = Chroot(target, environ, mnt_profile)
+    try:
+        yield chroot
+    finally:
+        chroot.magicmounts.umount()
 
 
 class MagicMounts:
