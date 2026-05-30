@@ -100,7 +100,7 @@ def mount(
     try:
         yield chroot
     finally:
-        chroot.magicmounts.umount()
+        chroot.umount()
 
 
 class MagicMounts:
@@ -242,6 +242,9 @@ class Chroot:
                     f"failed to prepare command {command!r} for chroot",
                 ) from e
         return ["chroot", self.path, "sh", "-c", " ".join(quoted_commands)]
+
+    def umount(self) -> None:
+        self.magicmounts.umount()
 
     def system(self, command: str | None = None) -> int:
         """Execute system command in chroot.
