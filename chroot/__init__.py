@@ -12,9 +12,7 @@ import subprocess
 from collections.abc import Generator
 from contextlib import contextmanager
 from os.path import abspath, join, realpath
-from typing import Any, TypeVar
-
-AnyPath = TypeVar("AnyPath", str, os.PathLike)
+from typing import Any
 
 MNT_DEFAULT = {
     # Mount types, rather than bind mounts - note /dev always needs bind mount
@@ -51,7 +49,7 @@ class MountError(ChrootError):
     pass
 
 
-def is_mounted[AnyPath](path: AnyPath) -> bool:
+def is_mounted(path: str | bytes | os.PathLike) -> bool:
     """Determine if a given path is currently mounted.
 
     This method supports any path-like object (any object which implements the
@@ -71,7 +69,7 @@ def is_mounted[AnyPath](path: AnyPath) -> bool:
 
 @contextmanager
 def mount(
-    target: os.PathLike,
+    target: str | os.PathLike,
     environ: dict[str, str] | None = None,
     mnt_profile: dict[str, str] | None = None,
 ) -> Generator["Chroot"]:
@@ -208,7 +206,7 @@ class Chroot:
 
     def __init__(
         self,
-        newroot: AnyPath,
+        newroot: str | os.PathLike,
         environ: dict[str, str] | None = None,
         mnt_profile: dict[str, str] | None = None,
     ) -> None:
