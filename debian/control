@@ -1,17 +1,21 @@
 Source: turnkey-chroot
 Section: python
-Priority: optional
 Maintainer: Stefan Davis <stefan@turnkeylinux.org>
 Build-Depends:
- debhelper (>= 10),
- python3-all (>= 3.11~),
- dh-python
-Standards-Version: 4.0.0
-X-Python-Version: >= 3.11
+ debhelper-compat (= 13),
+ python3 (>= 3.13),
+ dh-python,
+ pybuild-plugin-pyproject,
+ python3-pytest,
+Standards-Version: 4.7.2
+X-Python-Version: >= 3.13
+Vcs-Git: https://github.com/turnkeylinux/turnkey-chroot.git
+Vcs-Browser: https://github.com/turnkeylinux/turnkey-chroot
 
 Package: turnkey-chroot
 Architecture: all
 Depends:
- ${misc:Depends},
+ python3 (>= 3.13),
  ${python3:Depends},
+ ${misc:Depends},
 Description: A library to interact with and/or run commands in a chroot
