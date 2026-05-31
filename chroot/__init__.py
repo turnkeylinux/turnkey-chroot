@@ -53,8 +53,8 @@ def is_mounted(path: str | bytes | os.PathLike) -> bool:
     """Determine if a given path is currently mounted.
 
     This method supports any path-like object (any object which implements the
-    os.PathLike interface, this includes `str`, `bytes` and path objects
-    provided by `pathlib` in the standard library.
+    os.PathLike interface, this includes `str`, `bytes` and pathlib.Path
+    objects.
     """
     raw_path: str | bytes = os.fspath(str(path))
     mode = "rb" if isinstance(raw_path, bytes) else "r"
@@ -249,16 +249,18 @@ class Chroot:
     def system(self, command: str | None = None) -> int:
         """Execute system command in chroot.
 
-        roughly analagous to `os.system` except within the context of a chroot
-        (uses subprocess internally)
+        Roughly analagous to `os.system` except within the context of a chroot
+        (uses subprocess internally).
 
         Args:
-            command: command (with args) to run inside a chroot
-                     - if no command is passed, then will open an interactive
-                       (bash) shell within the chroot
+            command (str):
+                (optional) command (as a string) to run inside a chroot
+                    - if no command is passed, then will open an interactive
+                      (bash) shell within the chroot
 
         Returns:
-            returncode of process as an int
+            int:
+                returncode of process
 
         Raises:
             FileNotFoundError: chroot program doesn't exist
@@ -284,7 +286,8 @@ class Chroot:
         chroot.
 
         Args:
-            command: command to run inside a chroot followed by args as a list
+            command (str):
+                command to run inside a chroot followed by args as a list
                 e.g. ``['ls', '-la', '/tmp']``
 
             *args: forwarded to subprocess.run
@@ -292,15 +295,16 @@ class Chroot:
 
 
         Returns:
-            The completed process object (`subprocess.CompletedProcess`) of
-            the chroot call. Note: this applies to the `chroot` command, not
-            the inner command. As a result some attributes of thi may be
-            counter-intuitive.
+            subprocess.CompletedProcess:
+                The completed process object of the chroot call. Note: this
+                applies to the `chroot` command, not the command to be run. As
+                a result some attributes may be counter-intuitive.
 
         Raises:
-            FileNotFoundError: chroot program doesn't exist
-            CalledProcessError: check=True was passed in kwargs and
-                exitcode != 0
+            FileNotFoundError:
+                chroot program doesn't exist
+            CalledProcessError:
+                check=True was passed in kwargs and exitcode != 0
 
         """
         debug("chroot.run (args) => \x1b[34m", repr(command), "\x1b[0m")
