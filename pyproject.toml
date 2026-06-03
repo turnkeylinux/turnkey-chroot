@@ -6,15 +6,84 @@ build-backend = "setuptools.build_meta"
 name = "turnkey-chroot"
 version = "1.1.0"
 authors = [{name = "TurnKey GNU/Linux", email = "jeremy@turnkeylinux.org"}]
-license = "GPL-3.0-or-later"
 description = "A library to interact with and/or run commands in a chroot"
+readme = "README.md"
+requires-python = ">=3.13"
+license = "GPL-3.0-or-later"
 
 [project.urls]
 Homepage = "https://github.com/turnkeylinux/turnkey-chroot"
 
 [tool.setuptools]
 packages = ["chroot"]
-include-package-data = false
 
 [tool.setuptools.package-data]
-fablib = ["py.typed"]
+chroot = ["py.typed"]
+
+[tool.ruff]
+line-length = 79
+indent-width = 4
+target-version = "py313"
+exclude = [".git", "__pycache__"]
+
+[tool.ruff.lint]
+# Enable all rules by default - then exclude specific ones as required
+select = ["ALL"]
+ignore = [
+    # CAUTION: allow "untrusted" subprocess command/s - all commands use
+    # arguments determined internaly or are validated
+    "S603",
+
+    # CAUTION: allow insecure usage of temporary file/dir
+    "S108",
+
+    # 'incorrect-blank-line-before-class' (D203) and
+    # 'no-blank-line-before-class' (D211) are incompatible
+    "D211",
+
+    # 'multi-line-summary-first-line' (D212) and
+    # 'multi-line-summary-second-line` (D213) are incompatible
+    "D213",
+
+    # silence TODO format warnings - but keep FIX002 ("consider fixing")
+    "TD002", "TD003", "TD004",
+
+    # allow usage of print()
+    "T201",
+
+    # don't enforce use of pathlib.Path
+    "PTH", "PTH118", "PTH119", "PTH123",
+
+    # allow usage of bool args in functions/methods
+    "FBT001", "FBT002",
+
+    # don't complain about function/method complexity
+    "C901", "PLR0911", "PLR0912", "PLR0913", "PLR0915",
+
+    # don't enforce docstrings in all classes, methods &/or functions
+    "D101", "D102", "D103", "D105", "D107",
+
+    # don't enforce blank line before or after class docstring
+    "D203", "D204",
+
+    # disable restrictions on exception strings
+    "EM101", "EM102", "TRY003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# tests legitimately use asserts (S101), access "private" members to test
+# them (SLF001), live in a non-package dir (INP001), and take fixture/mock
+# params that aren't always referenced in the body (ARG001)
+"tests/*" = ["S101", "SLF001", "INP001", "ARG001"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = false
+docstring-code-line-length = "dynamic"
+
+[tool.mypy]
+# use local type stubs (generated with stubgen)
+mypy_path = "type_stubs"

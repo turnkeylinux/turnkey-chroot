@@ -1,3 +1,19 @@
-.py[cod]
-__pycache__
+# cached dev files
+.ruff_cache
+.mypy_cache/
+__pycache__/
+
+# editor swap files
 .swp
+
+# build files - inc deb packaging
+.pybuild/
+build/
+turnkey-chroot.egg-info/
+debian/.debhelper/
+debian/debhelper-build-stamp
+debian/files
+debian/turnkey-chroot/
+debian/turnkey-chroot.substvars
+debian/turnkey-chroot.postinst.debhelper
+debian/turnkey-chroot.prerm.debhelper

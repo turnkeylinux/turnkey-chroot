@@ -1,9 +1,10 @@
-# Copyright (c) 2021 TurnkeyLinux <admin@turnkeylinux.org>
+# Copyright (c) 2021-2026 TurnkeyLinux <admin@turnkeylinux.org>
 #
 # turnkey-chroot is open source software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License as
 # published by the Free Software Foundation; either version 3 of the
 # License, or (at your option) any later version.
+"""Set up, run commands within, and tear down a chroot."""
 
 import os
 import shlex
@@ -11,9 +12,7 @@ import subprocess
 from collections.abc import Generator
 from contextlib import contextmanager
 from os.path import abspath, join, realpath
-from typing import Any, TypeVar
-
-AnyPath = TypeVar("AnyPath", str, os.PathLike)
+from typing import Any
 
 MNT_DEFAULT = {
     # Mount types, rather than bind mounts - note /dev always needs bind mount
@@ -23,6 +22,7 @@ MNT_DEFAULT = {
     "sysfs": "sys",
     "dev": "dev",
     "devpts": "dev/pts",
+    "tmpfs": "run",
 }
 
 MNT_FULL = {
@@ -49,31 +49,30 @@ class MountError(ChrootError):
     pass
 
 
-def is_mounted(path: AnyPath) -> bool:
-    """determines if a given path is currently mounted.
+def is_mounted(path: str | os.PathLike) -> bool:
+    """Determine if a given path is currently mounted.
 
-    This method supports any path-like object (any object which implements the
-    os.PathLike interface, this includes `str`, `bytes` and path objects
-    provided by `pathlib` in the standard library.
+    This method supports any path-like object - any object which implements the
+    os.PathLike interface, this includes `str` and pathlib.Path objects.
     """
-    raw_path: str | bytes = os.fspath(path)
+    raw_path: str | bytes = os.fspath(str(path))
     mode = "rb" if isinstance(raw_path, bytes) else "r"
     sep = b" " if isinstance(raw_path, bytes) else " "
     with open("/proc/mounts", mode) as fob:
         for line in fob:
             _, guest, *_ = line.split(sep)
-            if guest == path:
+            if guest == raw_path:
                 return True
     return False
 
 
 @contextmanager
 def mount(
-    target: os.PathLike,
+    target: str | os.PathLike,
     environ: dict[str, str] | None = None,
     mnt_profile: dict[str, str] | None = None,
-) -> Generator["Chroot", None, None]:
-    """magic mount context manager
+) -> Generator["Chroot"]:
+    """Magic mount context manager.
 
     Usage:
 
@@ -83,13 +82,23 @@ def mount(
         >>>     assert os.path.exists('/path/to/chroot/proc')
 
     Args:
-        target: either a `MagicMounts` object or a path
+        target (os.PathLike):
+            either a `MagicMounts` object or a path
+        environ (dict[str, str] | None):
+            a optional dictionary of env vars to pass to subprocess (default
+            None - use host env)
+        mnt_profile (dict[str, str] | None = None):
+            an optional dictionary representing a mount profile
 
     Yields:
         a `Chroot` object representing a mounted chroot at the given location
 
     """
-    yield Chroot(target, environ, mnt_profile)
+    chroot = Chroot(target, environ, mnt_profile)
+    try:
+        yield chroot
+    finally:
+        chroot.umount()
 
 
 class MagicMounts:
@@ -107,22 +116,22 @@ class MagicMounts:
 
         self.path: dict[str, str] = {}
         self.mounted: dict[str, bool] = {}
-        for host_mount, chroot_mount in self.path.items():
+        for host_mount, chroot_mount in self.profile.items():
             self.path[host_mount] = join(root, chroot_mount)
             self.mounted[host_mount] = False
 
         self.mount()
 
     def mount(self) -> None:
-        """mount this chroot
+        """Mount this chroot.
 
         Raises:
             MountError: An error occured while trying to mount chroot
+
         """
         for host_mount, chroot_path in self.path.items():
             if is_mounted(chroot_path):
                 continue
-                self.mounted[host_mount] = True
             switch = self.switch
             if host_mount == "dev":
                 switch = "--bind"  # dev should always be bind mounted
@@ -134,11 +143,13 @@ class MagicMounts:
                     command.extend([host_mount, "sys", chroot_path])
                 elif host_mount == "devpts":
                     command.extend([host_mount, "pts", chroot_path])
+                elif host_mount == "tmpfs":
+                    command.extend([host_mount, "tmpfs", chroot_path])
             elif switch == "--bind":
                 command.extend([f"/{host_mount}", chroot_path])
             else:
                 raise MountError(
-                    f"Unknown switch passed to mount() method: '{switch}'."
+                    f"Unknown switch passed to mount() method: '{switch}'.",
                 )
             try:
                 subprocess.run(command, check=True)
@@ -147,24 +158,29 @@ class MagicMounts:
                 raise MountError(*e.args) from e
 
     def umount(self) -> None:
-        """un-mount this chroot
+        """Un-mount this chroot.
 
         Raises:
             MountError: An error occured while trying to un-mount chroot
+
         """
+
         def _umount(path: str) -> None:
             try:
-                subprocess.run(["umount", "--force", path], check=True)
+                subprocess.run(
+                    ["/usr/bin/umount", "--force", path],
+                    check=True,
+                )
             except subprocess.CalledProcessError as e:
                 raise MountError from e
 
-        for mount in self.mounted.keys():
+        for mount in self.mounted:
             if self.mounted[mount]:
                 # when relevant, ensure <chroot>/dev/pts is unmounted before
                 # trying to unmount <chroot>/dev
                 if (
                     mount == "dev"
-                    and "devpts" in self.path.keys()
+                    and "devpts" in self.path
                     and self.mounted["devpts"]
                 ):
                     _umount(self.path["devpts"])
@@ -177,7 +193,8 @@ class MagicMounts:
 
 
 class Chroot:
-    """represents a chroot on your system that you can run commands inside.
+    """A chroot object that you can run commands inside.
+
     This class automatically attempts to mount the given chroot.
 
     Example usage:
@@ -188,21 +205,23 @@ class Chroot:
 
     def __init__(
         self,
-        newroot: AnyPath,
+        newroot: str | os.PathLike,
         environ: dict[str, str] | None = None,
         mnt_profile: dict[str, str] | None = None,
     ) -> None:
+        _p = "/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/bin:/usr/sbin"
         if environ is None:
             environ = {}
         self.environ = {
             "HOME": "/root",
             "TERM": os.environ["TERM"],
             "LC_ALL": "C",
-            "PATH":
-                "/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/bin:/usr/sbin",
+            "PATH": _p,
         }
         self.environ.update(environ)
-        self.profile = dict(MNT_DEFAULT) if not mnt_profile else dict(mnt_profile)
+        self.profile = (
+            dict(MNT_DEFAULT) if not mnt_profile else dict(mnt_profile)
+        )
 
         self.path: str = realpath(os.fspath(newroot))
         self.magicmounts = MagicMounts(self.profile, self.path)
@@ -211,7 +230,7 @@ class Chroot:
         if ">" in commands or "<" in commands or "|" in commands:
             raise ChrootError(
                 "Output redirects and pipes not supported in"
-                f"fab-chroot (command: `{commands}')"
+                f"fab-chroot (command: `{commands}')",
             )
         quoted_commands = []
         for command in commands:
@@ -219,33 +238,40 @@ class Chroot:
                 quoted_commands.append(shlex.quote(command))
             except TypeError as e:
                 raise ChrootError(
-                    f"failed to prepare command {command!r} for chroot"
+                    f"failed to prepare command {command!r} for chroot",
                 ) from e
         return ["chroot", self.path, "sh", "-c", " ".join(quoted_commands)]
 
-    def system(self, command: str | None = None) -> int:
-        """execute system command in chroot
+    def umount(self) -> None:
+        self.magicmounts.umount()
 
-        roughly analagous to `os.system` except within the context of a chroot
-        (uses subprocess internally)
+    def system(self, command: str | None = None) -> int:
+        """Execute system command in chroot.
+
+        Roughly analagous to `os.system` except within the context of a chroot
+        (uses subprocess internally).
 
         Args:
-            command: command (with args) to run inside a chroot
-                     - if no command is passed, then will open an interactive
-                       (bash) shell within the chroot
+            command (str):
+                (optional) command (as a string) to run inside a chroot
+                    - if no command is passed, then will open an interactive
+                      (bash) shell within the chroot
 
         Returns:
-            returncode of process as an int
+            int:
+                returncode of process
 
         Raises:
             FileNotFoundError: chroot program doesn't exist
-        """
 
+        """
         debug("chroot.system (args) => \x1b[34m", repr(command), "\x1b[0m")
         command_chroot = ["chroot", self.path, "/bin/bash"]
         if command:
             command_chroot.extend(["-c", command])
-        return subprocess.run(command_chroot, env=self.environ).returncode
+        return subprocess.run(
+            command_chroot, env=self.environ, check=False,
+        ).returncode
 
     def run(
         self,
@@ -253,13 +279,14 @@ class Chroot:
         *args: str,
         **kwargs: str | dict[str, str] | int | bool | None,
     ) -> subprocess.CompletedProcess:
-        """execute system command in chroot
+        """Execute system command in chroot.
 
-        roughly analagous to `subprocess.run` except within the context of a
-        chroot
+        Roughly analagous to `subprocess.run` except within the context of a
+        chroot.
 
         Args:
-            command: command to run inside a chroot followed by args as a list
+            command (str):
+                command to run inside a chroot followed by args as a list
                 e.g. ``['ls', '-la', '/tmp']``
 
             *args: forwarded to subprocess.run
@@ -267,25 +294,30 @@ class Chroot:
 
 
         Returns:
-            The completed process object (`subprocess.CompletedProcess`) of
-            the chroot call. Note: this applies to the `chroot` command, not
-            the inner command. As a result some attributes of thi may be
-            counter-intuitive.
+            subprocess.CompletedProcess:
+                The completed process object of the chroot call. Note: this
+                applies to the `chroot` command, not the command to be run. As
+                a result some attributes may be counter-intuitive.
 
         Raises:
-            FileNotFoundError: chroot program doesn't exist
-            CalledProcessError: check=True was passed in kwargs and
-                exitcode != 0
+            FileNotFoundError:
+                chroot program doesn't exist
+            CalledProcessError:
+                check=True was passed in kwargs and exitcode != 0
+
         """
         debug("chroot.run (args) => \x1b[34m", repr(command), "\x1b[0m")
         if isinstance(command, str):
             command = command.split()
         cmd = self._prepare_command(*command)
         debug("chroot.run (prepared cmd) => \x1b[33m", repr(cmd), "\x1b[0m")
+        # default check to False but allow callers to override via kwargs
+        check = bool(kwargs.pop("check", False))
         # typing subprocess here is too complex, so ignore type error
         return subprocess.run(
             cmd,
             *args,
             env=self.environ,
+            check=check,
             **kwargs,
         )  # type: ignore[call-overload]
