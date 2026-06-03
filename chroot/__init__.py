@@ -49,12 +49,11 @@ class MountError(ChrootError):
     pass
 
 
-def is_mounted(path: str | bytes | os.PathLike) -> bool:
+def is_mounted(path: str | os.PathLike) -> bool:
     """Determine if a given path is currently mounted.
 
-    This method supports any path-like object (any object which implements the
-    os.PathLike interface, this includes `str`, `bytes` and pathlib.Path
-    objects.
+    This method supports any path-like object - any object which implements the
+    os.PathLike interface, this includes `str` and pathlib.Path objects.
     """
     raw_path: str | bytes = os.fspath(str(path))
     mode = "rb" if isinstance(raw_path, bytes) else "r"
