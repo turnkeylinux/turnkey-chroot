@@ -238,6 +238,14 @@ class MagicMounts:
     def __del__(self) -> None:
         self.umount()
 
+    def __repr__(self) -> str:
+        _repr = [f"\n{self._class}("]
+        for var, val in vars(self).items():
+            if var.startswith("_"):
+                continue
+            _repr.append(f"  {var}={val},")
+        return "\n".join(_repr) + "\n"
+
 
 class Chroot:
     """A chroot object that you can run commands inside.
@@ -385,3 +393,11 @@ class Chroot:
             check=check,
             **kwargs,
         )  # type: ignore[call-overload]
+
+    def __repr__(self) -> str:
+        _repr = [f"\n{self._class}("]
+        for var, val in vars(self).items():
+            if var.startswith("_"):
+                continue
+            _repr.append(f"  {var}={val},")
+        return "\n".join(_repr) + "\n"
