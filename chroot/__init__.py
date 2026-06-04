@@ -6,13 +6,33 @@
 # License, or (at your option) any later version.
 """Set up, run commands within, and tear down a chroot."""
 
+import logging
 import os
 import shlex
 import subprocess
 from collections.abc import Generator
 from contextlib import contextmanager
 from os.path import abspath, join, realpath
-from typing import Any
+
+log_level = {
+    "DEBUG": logging.DEBUG,
+    "WARN": logging.WARNING,
+    "WARNING": logging.WARNING,
+    "INFO": logging.INFO,
+    "ERROR": logging.ERROR,
+    "ERR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+    "FATAL": logging.CRITICAL,
+}[os.getenv("CHROOT_LOG_LEVEL", "warn").upper()]
+
+logger = logging.getLogger("chroot")
+if "DEBUG" in os.environ.keys():
+    log_level = logging.DEBUG
+logging.basicConfig(
+    format="%(asctime)s - [%(levelname)-7s]%(filename)s:%(lineno)d"
+    " %(message)s",
+    level=log_level,
+)
 
 MNT_DEFAULT = {
     # Mount types, rather than bind mounts - note /dev always needs bind mount
@@ -36,11 +56,6 @@ MNT_FULL = {
 }
 
 
-def debug(*s: Any) -> None:  # noqa: ANN401
-    if os.getenv("TKL_CHROOT_DEBUG", ""):
-        print(*s)
-
-
 class ChrootError(Exception):
     pass
 
@@ -55,6 +70,7 @@ def is_mounted(path: str | os.PathLike) -> bool:
     This method supports any path-like object - any object which implements the
     os.PathLike interface, this includes `str` and pathlib.Path objects.
     """
+    _debug = f"chroot.is_mounted({path=})"
     raw_path: str | bytes = os.fspath(str(path))
     mode = "rb" if isinstance(raw_path, bytes) else "r"
     sep = b" " if isinstance(raw_path, bytes) else " "
@@ -62,7 +78,9 @@ def is_mounted(path: str | os.PathLike) -> bool:
         for line in fob:
             _, guest, *_ = line.split(sep)
             if guest == raw_path:
+                logger.debug("%s: True", _debug)
                 return True
+    logger.debug("%s: False", _debug)
     return False
 
 
@@ -94,10 +112,22 @@ def mount(
         a `Chroot` object representing a mounted chroot at the given location
 
     """
+    logger.debug(
+        "\nchroot.mount(\n  target=%s,\n  environ=%s,\n  mnt_profile=%s\n)",
+        target,
+        environ,
+        mnt_profile,
+    )
     chroot = Chroot(target, environ, mnt_profile)
     try:
         yield chroot
     finally:
+        logger.debug(
+            "chroot.mount(\n  target=%s,\n  environ=%s,\n  mnt_profile=%s\n)",
+            target,
+            environ,
+            mnt_profile,
+        )
         chroot.umount()
 
 
@@ -108,7 +138,15 @@ class MagicMounts:
     `mount` context manager, or the `Chroot` object.
     """
 
+    _class = "chroot.MagicMounts"
+
     def __init__(self, mnt_profile: dict[str, str], root: str = "/") -> None:
+        logger.debug(
+            "\n%s(\n  mnt_profile=%s\n  root=%s\n)",
+            self._class,
+            mnt_profile,
+            root,
+        )
         root = os.fspath(abspath(root))
 
         self.switch = mnt_profile.pop("switch")
@@ -129,8 +167,14 @@ class MagicMounts:
             MountError: An error occured while trying to mount chroot
 
         """
+        _method = f"{self._class}.mount()"
+
         for host_mount, chroot_path in self.path.items():
+            logger.debug(
+                "%s - processing %s (%s)", _method, host_mount, chroot_path,
+            )
             if is_mounted(chroot_path):
+                logger.debug("{_method} - Mounted: {chroot_path=}")
                 continue
             switch = self.switch
             if host_mount == "dev":
@@ -149,9 +193,10 @@ class MagicMounts:
                 command.extend([f"/{host_mount}", chroot_path])
             else:
                 raise MountError(
-                    f"Unknown switch passed to mount() method: '{switch}'.",
+                    f"Unknown switch passed to {_method}(): '{switch}'.",
                 )
             try:
+                logger.debug("%s - running '%s'", _method, " ".join(command))
                 subprocess.run(command, check=True)
                 self.mounted[host_mount] = True
             except subprocess.CalledProcessError as e:
@@ -166,6 +211,7 @@ class MagicMounts:
         """
 
         def _umount(path: str) -> None:
+            logger.debug("%s.umount(path=%s)", self._class, path)
             try:
                 subprocess.run(
                     ["/usr/bin/umount", "--force", path],
@@ -183,6 +229,7 @@ class MagicMounts:
                     and "devpts" in self.path
                     and self.mounted["devpts"]
                 ):
+
                     _umount(self.path["devpts"])
                     self.mounted["devpts"] = False
                 _umount(self.path[mount])
@@ -203,6 +250,8 @@ class Chroot:
         >>> assert "ENVVAR=bar" in foo.run(["env"], text=True).stdout
     """
 
+    _class = "chroot.Chroot"
+
     def __init__(
         self,
         newroot: str | os.PathLike,
@@ -210,6 +259,13 @@ class Chroot:
         mnt_profile: dict[str, str] | None = None,
     ) -> None:
         _p = "/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/bin:/usr/sbin"
+        logger.debug(
+            "%s(\n  newroot=%s,\n  environ=%s,\n mnt_profile=%s\n)",
+            self._class,
+            newroot,
+            environ,
+            mnt_profile,
+        )
         if environ is None:
             environ = {}
         self.environ = {
@@ -265,10 +321,12 @@ class Chroot:
             FileNotFoundError: chroot program doesn't exist
 
         """
-        debug("chroot.system (args) => \x1b[34m", repr(command), "\x1b[0m")
+        logger.debug(
+            "%s.system (args) => \x1b[34m%s\x1b[0m", self._class, command)
         command_chroot = ["chroot", self.path, "/bin/bash"]
         if command:
             command_chroot.extend(["-c", command])
+        logger.debug("%s.system: '%s')", self._class, " ".join(command_chroot))
         return subprocess.run(
             command_chroot, env=self.environ, check=False,
         ).returncode
@@ -306,11 +364,17 @@ class Chroot:
                 check=True was passed in kwargs and exitcode != 0
 
         """
-        debug("chroot.run (args) => \x1b[34m", repr(command), "\x1b[0m")
+        logger.debug(
+            "%s.run (args) => \x1b[34m%s\x1b[0m", self._class, repr(command),
+        )
         if isinstance(command, str):
             command = command.split()
         cmd = self._prepare_command(*command)
-        debug("chroot.run (prepared cmd) => \x1b[33m", repr(cmd), "\x1b[0m")
+        logger.debug(
+            "%s.run (prepared cmd) => \x1b[33m%s\x1b[0m",
+            self._class,
+            repr(cmd),
+        )
         # default check to False but allow callers to override via kwargs
         check = bool(kwargs.pop("check", False))
         # typing subprocess here is too complex, so ignore type error
