@@ -26,7 +26,7 @@ log_level = {
 }[os.getenv("CHROOT_LOG_LEVEL", "warn").upper()]
 
 logger = logging.getLogger("chroot")
-if "DEBUG" in os.environ.keys():
+if "DEBUG" in os.environ:
     log_level = logging.DEBUG
 logging.basicConfig(
     format="%(asctime)s - [%(levelname)-7s]%(filename)s:%(lineno)d"
