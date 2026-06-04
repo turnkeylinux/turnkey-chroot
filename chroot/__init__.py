@@ -71,12 +71,10 @@ def is_mounted(path: str | os.PathLike) -> bool:
     os.PathLike interface, this includes `str` and pathlib.Path objects.
     """
     _debug = f"chroot.is_mounted({path=})"
-    raw_path: str | bytes = os.fspath(str(path))
-    mode = "rb" if isinstance(raw_path, bytes) else "r"
-    sep = b" " if isinstance(raw_path, bytes) else " "
-    with open("/proc/mounts", mode) as fob:
+    raw_path: str = os.fspath(str(path))
+    with open("/proc/mounts") as fob:
         for line in fob:
-            _, guest, *_ = line.split(sep)
+            _, guest, *_ = line.split()
             if guest == raw_path:
                 logger.debug("%s: True", _debug)
                 return True
@@ -89,6 +87,8 @@ def mount(
     target: str | os.PathLike,
     environ: dict[str, str] | None = None,
     mnt_profile: dict[str, str] | None = None,
+    # On python <v3.13 (pre PEP 696) mypy will show:
+    # "Generator" expects 3 type arguments, but 1 given [type-arg]
 ) -> Generator["Chroot"]:
     """Magic mount context manager.
 
