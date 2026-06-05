@@ -1,0 +1,45 @@
+v1.1.0 Release Notes
+====================
+
+* Bugfix:
+  - Fix 'mnt_profile' mutation bug. Special thanks to Marcos:
+    - https://github.com/marcos-mendez
+    - https://popsolutions.co/
+  - Do not error or clobber check=... arg handling in Chroot.run().
+
+* Features & functionality improvements:
+  - Mount /run (tmpfs) by default.
+  - Ensure that mount() context manager always unmounts chroot - don't rely on
+    garbage collector.
+  - Make chroot system mount mounting/unmounting more robust.
+
+* Code/repo clean up:
+  - Update code to Python3.13 standards.
+  - Create readme documenting functionality.
+  - Migrate python packaging; setup.py => pyproject.toml.
+  - Define project ruff and mypy rules (in pyproject.toml).
+  - Significant refactoring; linting, typing and formatting updates to make
+    code consistent with declared rules; including:
+    - Extend existing docstrings and include missing ones.
+    - Standarize and update code formating.
+    - Update typing to modern format.
+  - Add tests.
+  - Remove redundant code.
+  - Include 'py.typed' to make system aware that turnkey-chroot is typed.
+  - Updated gitignore to ignore common build artifacts.
+
+* Packaging:
+  - Bump python version (v3.5 => v3.11) and other dependencies.
+  - Bump Debian "Standards-Version" to (4.0.0 => 4.7.2).
+  - Remove 'Priority: optional' - do not declare defaults (as per standards
+    v4.72).
+  - Update Debian 'compat' level (10 => 13) & migrate declaration;
+    'debian/compat' file => 'debhelper-compat (= 13)' build depend.
+  - Update build depends' to support pyproject.toml packaging and running
+    tests at build time.
+  - Add git & browser urls.
+  - Correct 'Section'. 'misc' => 'python'.
+  - Correct 'Architecture'. 'any => 'all'.
+  - Update short description.
+  - Packaging updates/improvements to support reproducable builds, including
+    ensuring python bytecode is not included.
