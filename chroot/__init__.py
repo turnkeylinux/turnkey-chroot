@@ -337,7 +337,7 @@ class Chroot:
 
         """
         logger.debug(
-            "%s.system (args) => \x1b[34m%s\x1b[0m", self._class, command)
+            "%s.system (args) => %s", self._class, command)
         command_chroot = ["chroot", self.path, "/bin/bash"]
         if command:
             command_chroot.extend(["-c", command])
@@ -380,13 +380,13 @@ class Chroot:
 
         """
         logger.debug(
-            "%s.run (args) => \x1b[34m%s\x1b[0m", self._class, repr(command),
+            "%s.run (args) => %s", self._class, repr(command),
         )
         if isinstance(command, str):
             command = command.split()
         cmd = self._prepare_command(*command)
         logger.debug(
-            "%s.run (prepared cmd) => \x1b[33m%s\x1b[0m",
+            "%s.run (prepared cmd) => %s",
             self._class,
             repr(cmd),
         )
