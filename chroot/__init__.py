@@ -14,7 +14,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from os.path import abspath, join, realpath
 
-log_level = {
+log_levels = {
     "DEBUG": logging.DEBUG,
     "WARN": logging.WARNING,
     "WARNING": logging.WARNING,
@@ -23,11 +23,18 @@ log_level = {
     "ERR": logging.ERROR,
     "CRITICAL": logging.CRITICAL,
     "FATAL": logging.CRITICAL,
-}[os.getenv("CHROOT_LOG_LEVEL", "warn").upper()]
+}
 
 logger = logging.getLogger("chroot")
+
+env_log_level = os.getenv("CHROOT_LOG_LEVEL", "warn").upper()
 if "DEBUG" in os.environ:
     log_level = logging.DEBUG
+elif env_log_level in log_levels:
+    log_level = log_levels[env_log_level]
+else:
+    log_level = logging.WARNING
+
 logging.basicConfig(
     format="%(asctime)s - [%(levelname)-7s]%(filename)s:%(lineno)d"
     " %(message)s",
