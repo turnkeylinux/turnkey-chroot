@@ -46,10 +46,7 @@ MNT_DEFAULT = {
     "switch": "--type",
     # mount_type/host_mount: mount_point
     "proc": "proc",
-    "sysfs": "sys",
-    "dev": "dev",
     "devpts": "dev/pts",
-    "tmpfs": "run",
 }
 
 MNT_FULL = {
